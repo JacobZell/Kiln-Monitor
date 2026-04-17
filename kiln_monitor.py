@@ -410,7 +410,7 @@ def read_kiln_status(page):
     if "/home" in page.url or "kiln-tabs/status" not in page.url:
         raise RuntimeError("session expired")
 
-    status_el = page.query_selector(".status-div ion-text.status")
+    status_el = page.query_selector(".status-div ion-text")
     status = " ".join((status_el.inner_text() or "").split()) if status_el else "Unknown"
 
     program = ""
