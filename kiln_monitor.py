@@ -20,14 +20,15 @@ import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from datetime import datetime
+import os
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 
-KILN_EMAIL    = "ceramics@thebodgery.org"
-KILN_PASSWORD = "B0dgeryCeramics!"
+KILN_EMAIL    = os.environ.get("KILN_EMAIL", "")
+KILN_PASSWORD = os.environ.get("KILN_PASSWORD", "")
 
-SLACK_MEMBERS_URL    = "https://hooks.slack.com/triggers/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"
-SLACK_LEADERSHIP_URL = "https://hooks.slack.com/triggers/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"
+SLACK_MEMBERS_URL    = os.environ.get("SLACK_MEMBERS_URL", "")
+SLACK_LEADERSHIP_URL = os.environ.get("SLACK_LEADERSHIP_URL", "")
 
 POLL_INTERVAL_SECONDS = 60
 WEB_PORT = 5000
@@ -594,10 +595,12 @@ def main():
                             notify({"KilnStatus": f"🏺 *{name} is ready to unload!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, members=True)
                         elif is_complete:
                             notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str}."}, leadership=True)
-                        elif "idle" in status.lower():
+                        elif "idle" in status.lower() and prev and "complete" in prev.lower():
                             notify({"KilnStatus": f"💤 *{name} has been unloaded and is now idle.* Current temp: {temp_str}"}, members=True)
                         elif "error" in status.lower():
                             notify({"KilnStatus": f"🚨 *{name} has an error{prog}!* The kiln has reported an error and may need attention. Current temp: {temp_str}"}, leadership=True)
+                        elif "not connected" in status.lower():
+                            notify({"KilnStatus": f"⚠️ *{name} is not connected!* The monitoring system cannot communicate with the kiln."}, leadership=True)
                         else:
                             notify({"KilnStatus": f"ℹ️ *{name} status update:* {status}{prog} — Current temp: {temp_str}"}, leadership=True)
 
