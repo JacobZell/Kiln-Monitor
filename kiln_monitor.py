@@ -31,7 +31,8 @@ SLACK_LEADERSHIP_URL = "https://hooks.slack.com/triggers/T1W6H4FUG/1094448575798
 
 POLL_INTERVAL_SECONDS = 60
 WEB_PORT = 5000
-READY_TO_UNLOAD_TEMP = 425
+ABLE_TO_UNLOAD_TEMP = 425
+READY_TO_UNLOAD_TEMP = 200
 HISTORY_FILE = "kiln_firings.json"
 
 # ── URLS ───────────────────────────────────────────────────────────────────────
@@ -322,7 +323,7 @@ def build_html():
         badge = "firing"
     elif "error" in sl:
         badge = "error"
-    elif "complete" in sl and temp <= READY_TO_UNLOAD_TEMP:
+    elif "complete" in sl and temp <= ABLE_TO_UNLOAD_TEMP:
         badge = "ready"
         status = "Ready to unload"
     elif "complete" in sl:
@@ -520,8 +521,8 @@ def main():
 
                     print(f"[{time.strftime('%H:%M:%S')}] {name}: {status} | Z1:{z1}°F Z2:{temp}°F Z3:{z3}°F | {program}")
 
-                    # Thermocouple alerts
-                    if not first_run and broken and broken != prev_broken:
+                    # Thermocouple alerts - only when firing
+                    if not first_run and broken and broken != prev_broken and "firing" in status.lower():
                         zone_readings = ", ".join(f"{z}: {zones[z]}°F" for z in zones)
                         notify({"KilnStatus": f"⚠️ *Thermocouple alert on {name}!* {', '.join(broken)} thermocouple may be faulty. Readings: {zone_readings}"}, leadership=True)
                         last_statuses[f"{name}_broken"] = broken
@@ -574,21 +575,25 @@ def main():
                     # Slack notifications
                     was_ready   = last_statuses.get(f"{name}_ready", False)
                     is_complete = "complete" in status.lower()
-                    is_ready    = is_complete and temp <= READY_TO_UNLOAD_TEMP
+                    is_able    = is_complete and temp <= ABLE_TO_UNLOAD_TEMP
+                    is_ready   = is_complete and temp <= READY_TO_UNLOAD_TEMP
+
 
                     # Always update last_statuses on first run to set baseline without notifying
                     if first_run:
                         last_statuses[name] = status
-                        last_statuses[f"{name}_ready"] = is_ready
+                        last_statuses[f"{name}_ready"] = is_able
 
-                    if not first_run and (status != prev or (is_ready and not was_ready)):
+                    if not first_run and (status != prev or (is_able and not was_ready)):
                         prog = f" ({program})" if program else ""
                         if "firing" in status.lower():
                             notify({"KilnStatus": f"🔥 *{name} is now firing{prog}!* The kiln has started a firing cycle."}, members=True)
+                        elif is_able:
+                            notify({"KilnStatus": f"🏺 *{name} is able to be unloaded!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, leadership=True)
                         elif is_ready:
-                            notify({"KilnStatus": f"🏺 *{name} is ready to unload!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open."}, leadership=True)
+                            notify({"KilnStatus": f"🏺 *{name} is ready to unload!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, members=True)
                         elif is_complete:
-                            notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str} — will notify when ready to unload at 425°F."}, leadership=True)
+                            notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str}."}, leadership=True)
                         elif "idle" in status.lower():
                             notify({"KilnStatus": f"💤 *{name} has been unloaded and is now idle.* Current temp: {temp_str}"}, members=True)
                         elif "error" in status.lower():
@@ -597,7 +602,7 @@ def main():
                             notify({"KilnStatus": f"ℹ️ *{name} status update:* {status}{prog} — Current temp: {temp_str}"}, leadership=True)
 
                         last_statuses[name] = status
-                        last_statuses[f"{name}_ready"] = is_ready
+                        last_statuses[f"{name}_ready"] = is_able
 
             except PWTimeout:
                 print("⚠️  Timeout reading page, will retry.")
