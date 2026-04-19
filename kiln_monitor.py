@@ -20,18 +20,20 @@ import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from datetime import datetime
+import os
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 
-KILN_EMAIL    = "ceramics@thebodgery.org"
-KILN_PASSWORD = "B0dgeryCeramics!"
+KILN_EMAIL    = os.environ.get("KILN_EMAIL", "")
+KILN_PASSWORD = os.environ.get("KILN_PASSWORD", "")
 
-SLACK_MEMBERS_URL    = "https://hooks.slack.com/triggers/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"
-SLACK_LEADERSHIP_URL = "https://hooks.slack.com/triggers/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"
+SLACK_MEMBERS_URL    = os.environ.get("SLACK_MEMBERS_URL", "")
+SLACK_LEADERSHIP_URL = os.environ.get("SLACK_LEADERSHIP_URL", "")
 
 POLL_INTERVAL_SECONDS = 60
 WEB_PORT = 5000
-READY_TO_UNLOAD_TEMP = 425
+ABLE_TO_UNLOAD_TEMP = 425
+READY_TO_UNLOAD_TEMP = 200
 HISTORY_FILE = "kiln_firings.json"
 
 # ── URLS ───────────────────────────────────────────────────────────────────────
@@ -322,7 +324,7 @@ def build_html():
         badge = "firing"
     elif "error" in sl:
         badge = "error"
-    elif "complete" in sl and temp <= READY_TO_UNLOAD_TEMP:
+    elif "complete" in sl and temp <= ABLE_TO_UNLOAD_TEMP:
         badge = "ready"
         status = "Ready to unload"
     elif "complete" in sl:
@@ -520,8 +522,8 @@ def main():
 
                     print(f"[{time.strftime('%H:%M:%S')}] {name}: {status} | Z1:{z1}°F Z2:{temp}°F Z3:{z3}°F | {program}")
 
-                    # Thermocouple alerts
-                    if not first_run and broken and broken != prev_broken:
+                    # Thermocouple alerts - only when firing
+                    if not first_run and broken and broken != prev_broken and "firing" in status.lower():
                         zone_readings = ", ".join(f"{z}: {zones[z]}°F" for z in zones)
                         notify({"KilnStatus": f"⚠️ *Thermocouple alert on {name}!* {', '.join(broken)} thermocouple may be faulty. Readings: {zone_readings}"}, leadership=True)
                         last_statuses[f"{name}_broken"] = broken
@@ -574,30 +576,36 @@ def main():
                     # Slack notifications
                     was_ready   = last_statuses.get(f"{name}_ready", False)
                     is_complete = "complete" in status.lower()
-                    is_ready    = is_complete and temp <= READY_TO_UNLOAD_TEMP
+                    is_able    = is_complete and temp <= ABLE_TO_UNLOAD_TEMP
+                    is_ready   = is_complete and temp <= READY_TO_UNLOAD_TEMP
+
 
                     # Always update last_statuses on first run to set baseline without notifying
                     if first_run:
                         last_statuses[name] = status
-                        last_statuses[f"{name}_ready"] = is_ready
+                        last_statuses[f"{name}_ready"] = is_able
 
-                    if not first_run and (status != prev or (is_ready and not was_ready)):
+                    if not first_run and (status != prev or (is_able and not was_ready)):
                         prog = f" ({program})" if program else ""
                         if "firing" in status.lower():
                             notify({"KilnStatus": f"🔥 *{name} is now firing{prog}!* The kiln has started a firing cycle."}, members=True)
+                        elif is_able:
+                            notify({"KilnStatus": f"🏺 *{name} is able to be unloaded!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, leadership=True)
                         elif is_ready:
-                            notify({"KilnStatus": f"🏺 *{name} is ready to unload!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open."}, leadership=True)
+                            notify({"KilnStatus": f"🏺 *{name} is ready to unload!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, members=True)
                         elif is_complete:
-                            notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str} — will notify when ready to unload at 425°F."}, leadership=True)
-                        elif "idle" in status.lower():
+                            notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str}."}, leadership=True)
+                        elif "idle" in status.lower() and prev and "complete" in prev.lower():
                             notify({"KilnStatus": f"💤 *{name} has been unloaded and is now idle.* Current temp: {temp_str}"}, members=True)
                         elif "error" in status.lower():
                             notify({"KilnStatus": f"🚨 *{name} has an error{prog}!* The kiln has reported an error and may need attention. Current temp: {temp_str}"}, leadership=True)
+                        elif "not connected" in status.lower():
+                            notify({"KilnStatus": f"⚠️ *{name} is not connected!* The monitoring system cannot communicate with the kiln."}, leadership=True)
                         else:
                             notify({"KilnStatus": f"ℹ️ *{name} status update:* {status}{prog} — Current temp: {temp_str}"}, leadership=True)
 
                         last_statuses[name] = status
-                        last_statuses[f"{name}_ready"] = is_ready
+                        last_statuses[f"{name}_ready"] = is_able
 
             except PWTimeout:
                 print("⚠️  Timeout reading page, will retry.")
