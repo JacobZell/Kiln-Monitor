@@ -106,213 +106,7 @@ past_firings = load_past_firings()
 
 # ── WEB SERVER ─────────────────────────────────────────────────────────────────
 
-HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<title>Kiln Monitor</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; }
-  body { background: #f5f5f5; color: #111; display: flex; flex-direction: column; overflow: hidden; }
-  header { padding: .6rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 0.5px solid #e0e0e0; background: #fff; }
-  header h1 { font-size: .95rem; font-weight: 500; color: #444; }
-  .badge { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 5px; margin-left: 8px; white-space: nowrap; }
-  .badge.idle     { background: #f0f0f0; color: #666; }
-  .badge.firing   { background: #FFF3E0; color: #E65100; }
-  .badge.complete { background: #E8F5E9; color: #2E7D32; }
-  .badge.ready    { background: #E3F2FD; color: #1565C0; }
-  .badge.error    { background: #FFEBEE; color: #C62828; }
-  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: .5rem .75rem; flex-shrink: 0; background: #fff; border-bottom: 0.5px solid #e0e0e0; }
-  .card { background: #f7f7f7; border-radius: 8px; padding: .4rem .7rem; min-width: 0; }
-  .card .label { font-size: 9px; color: #888; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card .value { font-size: 16px; font-weight: 500; white-space: nowrap; }
-  .card.wide { grid-column: span 2; }
-  .main { display: flex; flex: 1; overflow: hidden; }
-  .chart-area { flex: 1; display: flex; flex-direction: column; padding: .75rem; min-height: 0; min-width: 0; }
-  .chart-title { font-size: 10px; color: #888; margin-bottom: .4rem; }
-  .chart-wrap { flex: 1; position: relative; min-height: 0; }
-  canvas { display: block; }
-  .sidebar { width: 220px; flex-shrink: 0; border-left: 0.5px solid #e0e0e0; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
-  .sidebar h2 { font-size: .75rem; font-weight: 500; color: #888; padding: .6rem .85rem .4rem; border-bottom: 0.5px solid #f0f0f0; flex-shrink: 0; }
-  .firing-list { overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
-  .firing-item { padding: .55rem .85rem; border-bottom: 0.5px solid #f0f0f0; cursor: pointer; transition: background .15s; }
-  .firing-item:active { background: #f0f0f0; }
-  .firing-item.active { background: #EEF4FF; }
-  .firing-item .fi-label { font-size: 12px; font-weight: 500; color: #333; }
-  .firing-item .fi-meta { font-size: 10px; color: #999; margin-top: 2px; }
-  .firing-item .fi-badge { font-size: 9px; background: #f0f0f0; color: #555; padding: 1px 5px; border-radius: 4px; display: inline-block; margin-top: 3px; }
-  .fi-delete { float: right; background: none; border: none; cursor: pointer; font-size: 13px; color: #ccc; padding: 0 2px; line-height: 1; }
-  .fi-delete:hover { color: #e74c3c; }
-  .updated { font-size: 9px; color: #bbb; }
-  @media (max-width: 640px) {
-    body { overflow: auto; }
-    .main { flex-direction: column; overflow: visible; height: auto; }
-    .cards { grid-template-columns: repeat(2, 1fr); }
-    .card.wide { grid-column: span 2; }
-    .card .value { font-size: 20px; }
-    .chart-area { padding: .75rem; height: 55vw; min-height: 240px; flex: none; }
-    .chart-wrap { height: 100%; }
-    .sidebar { width: 100%; border-left: none; border-top: 0.5px solid #e0e0e0; max-height: 280px; }
-    .firing-list { max-height: 240px; }
-  }
-  @media (prefers-color-scheme: dark) {
-    body { background: #1a1a1a; color: #eee; }
-    header, .cards, .sidebar { background: #222; border-color: #333; }
-    .card { background: #2a2a2a; }
-    .card .label { color: #888; }
-    .badge.idle { background: #333; color: #aaa; }
-    .badge.firing { background: #3E2800; color: #FFB74D; }
-    .badge.complete { background: #1B3A1F; color: #81C784; }
-    .badge.ready { background: #0D2A45; color: #64B5F6; }
-    .badge.error { background: #3B0000; color: #EF9A9A; }
-    .sidebar h2 { color: #666; border-color: #2a2a2a; }
-    .firing-item { border-color: #2a2a2a; }
-    .firing-item:active { background: #2a2a2a; }
-    .firing-item.active { background: #0D2A45; }
-    .firing-item .fi-label { color: #ddd; }
-    .firing-item .fi-meta { color: #666; }
-    .firing-item .fi-badge { background: #333; color: #aaa; }
-    .chart-title { color: #666; }
-  }
-</style>
-</head>
-<body>
-<header>
-  <h1><span id="kilnName">__KILN_NAME__</span> <span id="statusBadge" class="badge __BADGE_CLASS__">__STATUS__</span></h1>
-  <span id="lastUpdated" class="updated">__UPDATED__</span>
-</header>
-<div class="cards">
-  <div class="card"><div class="label">Zone 2 (primary)</div><div id="tempZ2" class="value">__TEMP__°F</div></div>
-  <div class="card"><div class="label">Zone 1</div><div id="tempZ1" class="value">__Z1__°F</div></div>
-  <div class="card"><div class="label">Zone 3</div><div id="tempZ3" class="value">__Z3__°F</div></div>
-  <div class="card"><div class="label">Peak</div><div id="peakVal" class="value">__PEAK__</div></div>
-  <div class="card"><div class="label">Duration</div><div id="durationVal" class="value">__DURATION__</div></div>
-  <div class="card"><div class="label">Rate</div><div id="rateVal" class="value">__RATE__</div></div>
-  <div class="card wide"><div class="label">Program</div><div id="programVal" class="value" style="font-size:13px;padding-top:2px;">__PROGRAM__</div></div>
-</div>
-<div class="main">
-  <div class="chart-area">
-    <div class="chart-title">Temperature (°F) over time into firing</div>
-    <div class="chart-wrap">
-      <canvas id="kilnChart" role="img" aria-label="Kiln temperature over time">Temperature history</canvas>
-    </div>
-  </div>
-  <div class="sidebar">
-    <h2>Past firings</h2>
-    <div class="firing-list" id="firingList"></div>
-  </div>
-</div>
-<script>
-const allFirings = __ALL_FIRINGS__;
-const liveFiring = { id: 'live', label: 'Live', history: __LIVE_HISTORY__ };
-let activeId = 'live';
-function getHistory(id) {
-  if (id === 'live') return liveFiring.history;
-  const f = allFirings.find(x => x.id === id);
-  return f ? f.history : [];
-}
-function buildChart(id) {
-  const history = getHistory(id);
-  const isLive = (id === 'live');
-  const TARGET = isLive ? Math.max(history.length, 1500) : history.length;
-  const rawLabels = history.map(h => h.time || '');
-  const rawTemps  = history.map(h => h.temp);
-  const labels = isLive ? rawLabels.concat(Array(TARGET - rawLabels.length).fill('')) : rawLabels;
-  const temps  = isLive ? rawTemps.concat(Array(TARGET - rawTemps.length).fill(null)) : rawTemps;
-  if (window._kilnChart) window._kilnChart.destroy();
-  window._kilnChart = new Chart(document.getElementById('kilnChart'), {
-    type: 'line',
-    data: { labels, datasets: [{
-      label: 'Temperature',
-      data: temps,
-      borderColor: '#D85A30',
-      backgroundColor: 'rgba(216,90,48,0.08)',
-      fill: true, tension: 0, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2
-    }]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => Math.round(c.parsed.y) + '°F' } } },
-      scales: {
-        x: { ticks: { maxTicksLimit: 8, font: { size: 9 }, color: '#888', autoSkip: true, maxRotation: 0 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Time into firing', font: { size: 10 }, color: '#888' } },
-        y: { min: 0, max: 2400, ticks: { callback: v => v + '°F', font: { size: 9 }, color: '#888', stepSize: 400 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Temperature (°F)', font: { size: 10 }, color: '#888' } }
-      }
-    }
-  });
-}
-function renderList() {
-  const list = document.getElementById('firingList');
-  list.innerHTML = '';
-  const liveEl = document.createElement('div');
-  liveEl.className = 'firing-item' + (activeId === 'live' ? ' active' : '');
-  liveEl.innerHTML = '<div class="fi-label">&#x1F534; Live</div><div class="fi-meta">Current firing</div>';
-  liveEl.onclick = () => { activeId = 'live'; renderList(); buildChart('live'); };
-  list.appendChild(liveEl);
-  [...allFirings].reverse().forEach(f => {
-    const el = document.createElement('div');
-    el.className = 'firing-item' + (activeId === f.id ? ' active' : '');
-    el.innerHTML = `<div class="fi-label">${f.label}<button class="fi-delete" title="Delete firing" onclick="deleteFiring(event,'${f.id}')">&#x1F5D1;</button></div><div class="fi-meta">Peak: ${f.peak}°F &middot; ${f.duration}</div><span class="fi-badge">${f.program}</span>`;
-    el.onclick = () => { activeId = f.id; renderList(); buildChart(f.id); };
-    list.appendChild(el);
-  });
-}
-function deleteFiring(event, id) {
-  event.stopPropagation();
-  if (!confirm('Are you sure you want to delete this firing? This cannot be undone.')) return;
-  fetch('/firing/' + id, { method: 'DELETE' })
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        const idx = allFirings.findIndex(f => f.id === id);
-        if (idx !== -1) allFirings.splice(idx, 1);
-        if (activeId === id) { activeId = 'live'; buildChart('live'); }
-        renderList();
-      } else {
-        alert('Could not delete firing.');
-      }
-    })
-    .catch(() => alert('Error connecting to server.'));
-}
-
-renderList();
-window.addEventListener('load', () => buildChart('live'));
-
-function refreshData() {
-  fetch('/state')
-    .then(r => r.json())
-    .then(d => {
-      document.getElementById('kilnName').textContent = d.name;
-      const badge = document.getElementById('statusBadge');
-      badge.textContent = d.status;
-      badge.className = 'badge ' + d.badge;
-      document.getElementById('lastUpdated').textContent = d.last_updated;
-      document.getElementById('tempZ2').textContent = d.temp + '°F';
-      document.getElementById('tempZ1').textContent = d.z1 + '°F';
-      document.getElementById('tempZ3').textContent = d.z3 + '°F';
-      document.getElementById('peakVal').textContent = d.peak;
-      document.getElementById('durationVal').textContent = d.duration;
-      document.getElementById('rateVal').textContent = d.rate;
-      document.getElementById('programVal').textContent = d.program;
-      if (activeId === 'live') {
-        liveFiring.history = d.history;
-        buildChart('live');
-      }
-      const newFirings = d.all_firings;
-      if (JSON.stringify(newFirings) !== JSON.stringify(allFirings)) {
-        allFirings.splice(0, allFirings.length, ...newFirings);
-        renderList();
-      }
-    })
-    .catch(() => {});
-}
-setInterval(refreshData, 60000);
-</script>
-</body>
-</html>"""
+HTML_PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
 
 def build_html():
@@ -477,12 +271,17 @@ class KilnHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+
+class KilnServer(HTTPServer):
     def handle_error(self, request, client_address):
-        pass
+        import sys
+        if sys.exc_info()[0] in (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            return
+        super().handle_error(request, client_address)
 
 
 def run_server():
-    server = HTTPServer(("0.0.0.0", WEB_PORT), KilnHandler)
+    server = KilnServer(("0.0.0.0", WEB_PORT), KilnHandler)
     print(f"🌐 Graph available at http://localhost:{WEB_PORT}")
     server.serve_forever()
 
