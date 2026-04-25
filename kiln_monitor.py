@@ -182,17 +182,17 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>__KILN_NAME__ <span class="badge __BADGE_CLASS__">__STATUS__</span></h1>
-  <span class="updated">__UPDATED__</span>
+  <h1><span id="kilnName">__KILN_NAME__</span> <span id="statusBadge" class="badge __BADGE_CLASS__">__STATUS__</span></h1>
+  <span id="lastUpdated" class="updated">__UPDATED__</span>
 </header>
 <div class="cards">
-  <div class="card"><div class="label">Zone 2 (primary)</div><div class="value">__TEMP__°F</div></div>
-  <div class="card"><div class="label">Zone 1</div><div class="value">__Z1__°F</div></div>
-  <div class="card"><div class="label">Zone 3</div><div class="value">__Z3__°F</div></div>
-  <div class="card"><div class="label">Peak</div><div class="value">__PEAK__</div></div>
-  <div class="card"><div class="label">Duration</div><div class="value">__DURATION__</div></div>
-  <div class="card"><div class="label">Rate</div><div class="value">__RATE__</div></div>
-  <div class="card wide"><div class="label">Program</div><div class="value" style="font-size:13px;padding-top:2px;">__PROGRAM__</div></div>
+  <div class="card"><div class="label">Zone 2 (primary)</div><div id="tempZ2" class="value">__TEMP__°F</div></div>
+  <div class="card"><div class="label">Zone 1</div><div id="tempZ1" class="value">__Z1__°F</div></div>
+  <div class="card"><div class="label">Zone 3</div><div id="tempZ3" class="value">__Z3__°F</div></div>
+  <div class="card"><div class="label">Peak</div><div id="peakVal" class="value">__PEAK__</div></div>
+  <div class="card"><div class="label">Duration</div><div id="durationVal" class="value">__DURATION__</div></div>
+  <div class="card"><div class="label">Rate</div><div id="rateVal" class="value">__RATE__</div></div>
+  <div class="card wide"><div class="label">Program</div><div id="programVal" class="value" style="font-size:13px;padding-top:2px;">__PROGRAM__</div></div>
 </div>
 <div class="main">
   <div class="chart-area">
@@ -280,6 +280,36 @@ function deleteFiring(event, id) {
 
 renderList();
 window.addEventListener('load', () => buildChart('live'));
+
+function refreshData() {
+  fetch('/state')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('kilnName').textContent = d.name;
+      const badge = document.getElementById('statusBadge');
+      badge.textContent = d.status;
+      badge.className = 'badge ' + d.badge;
+      document.getElementById('lastUpdated').textContent = d.last_updated;
+      document.getElementById('tempZ2').textContent = d.temp + '°F';
+      document.getElementById('tempZ1').textContent = d.z1 + '°F';
+      document.getElementById('tempZ3').textContent = d.z3 + '°F';
+      document.getElementById('peakVal').textContent = d.peak;
+      document.getElementById('durationVal').textContent = d.duration;
+      document.getElementById('rateVal').textContent = d.rate;
+      document.getElementById('programVal').textContent = d.program;
+      if (activeId === 'live') {
+        liveFiring.history = d.history;
+        buildChart('live');
+      }
+      const newFirings = d.all_firings;
+      if (JSON.stringify(newFirings) !== JSON.stringify(allFirings)) {
+        allFirings.splice(0, allFirings.length, ...newFirings);
+        renderList();
+      }
+    })
+    .catch(() => {});
+}
+setInterval(refreshData, 60000);
 </script>
 </body>
 </html>"""
@@ -347,8 +377,74 @@ def build_html():
     return html
 
 
+def build_state_json():
+    with state_lock:
+        s = dict(state)
+
+    history = s["history"]
+    status  = s["status"]
+    temp    = s["temp"]
+    peak    = f"{s['peak_temp']}°F" if s["peak_temp"] else "--"
+    program = s.get("program", "--") or "--"
+    z1      = s.get("z1", 0)
+    z3      = s.get("z3", 0)
+
+    elapsed_from_kiln = s.get("elapsed", "")
+    if elapsed_from_kiln:
+        duration = elapsed_from_kiln
+    elif s["firing_start"] and status.lower() in ("firing", "complete"):
+        secs = int((datetime.now() - s["firing_start"]).total_seconds())
+        h, m = divmod(secs // 60, 60)
+        duration = f"{h}h {m}m" if h else f"{m}m"
+    else:
+        duration = "--"
+
+    if len(history) >= 2:
+        diff = history[-1]["temp"] - history[-2]["temp"]
+        rate = f"{'+' if diff>=0 else ''}{diff * 60}°F/h"
+    else:
+        rate = "--"
+
+    sl = status.lower()
+    if "firing" in sl:
+        badge = "firing"
+    elif "error" in sl:
+        badge = "error"
+    elif "complete" in sl and temp <= ABLE_TO_UNLOAD_TEMP:
+        badge = "ready"
+        status = "Ready to unload"
+    elif "complete" in sl:
+        badge = "complete"
+    else:
+        badge = "idle"
+
+    return json.dumps({
+        "name": s["name"],
+        "status": status,
+        "badge": badge,
+        "temp": temp,
+        "z1": z1,
+        "z3": z3,
+        "peak": peak,
+        "duration": duration,
+        "rate": rate,
+        "program": program,
+        "last_updated": s["last_updated"],
+        "history": history,
+        "all_firings": EXAMPLE_FIRINGS + past_firings,
+    })
+
+
 class KilnHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/state":
+            data = build_state_json().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         html = build_html().encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
