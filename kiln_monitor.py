@@ -145,6 +145,8 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .firing-item .fi-label { font-size: 12px; font-weight: 500; color: #333; }
   .firing-item .fi-meta { font-size: 10px; color: #999; margin-top: 2px; }
   .firing-item .fi-badge { font-size: 9px; background: #f0f0f0; color: #555; padding: 1px 5px; border-radius: 4px; display: inline-block; margin-top: 3px; }
+  .fi-delete { float: right; background: none; border: none; cursor: pointer; font-size: 13px; color: #ccc; padding: 0 2px; line-height: 1; }
+  .fi-delete:hover { color: #e74c3c; }
   .updated { font-size: 9px; color: #bbb; }
   @media (max-width: 640px) {
     body { overflow: auto; }
@@ -253,11 +255,29 @@ function renderList() {
   [...allFirings].reverse().forEach(f => {
     const el = document.createElement('div');
     el.className = 'firing-item' + (activeId === f.id ? ' active' : '');
-    el.innerHTML = `<div class="fi-label">${f.label}</div><div class="fi-meta">Peak: ${f.peak}°F &middot; ${f.duration}</div><span class="fi-badge">${f.program}</span>`;
+    el.innerHTML = `<div class="fi-label">${f.label}<button class="fi-delete" title="Delete firing" onclick="deleteFiring(event,'${f.id}')">&#x1F5D1;</button></div><div class="fi-meta">Peak: ${f.peak}°F &middot; ${f.duration}</div><span class="fi-badge">${f.program}</span>`;
     el.onclick = () => { activeId = f.id; renderList(); buildChart(f.id); };
     list.appendChild(el);
   });
 }
+function deleteFiring(event, id) {
+  event.stopPropagation();
+  if (!confirm('Are you sure you want to delete this firing? This cannot be undone.')) return;
+  fetch('/firing/' + id, { method: 'DELETE' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        const idx = allFirings.findIndex(f => f.id === id);
+        if (idx !== -1) allFirings.splice(idx, 1);
+        if (activeId === id) { activeId = 'live'; buildChart('live'); }
+        renderList();
+      } else {
+        alert('Could not delete firing.');
+      }
+    })
+    .catch(() => alert('Error connecting to server.'));
+}
+
 renderList();
 window.addEventListener('load', () => buildChart('live'));
 </script>
@@ -335,6 +355,28 @@ class KilnHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(html)))
         self.end_headers()
         self.wfile.write(html)
+
+    def do_DELETE(self):
+        # Extract firing ID from path: DELETE /firing/<id>
+        path = self.path
+        if path.startswith("/firing/"):
+            firing_id = path[len("/firing/"):]
+            global past_firings
+            original_len = len(past_firings)
+            past_firings = [f for f in past_firings if f["id"] != firing_id]
+            if len(past_firings) < original_len:
+                save_past_firings(past_firings)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"ok": true}')
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b'{"ok": false, "error": "Not found"}')
+        else:
+            self.send_response(400)
+            self.end_headers()
 
     def log_message(self, *args):
         pass
