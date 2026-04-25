@@ -20,21 +20,36 @@ import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from datetime import datetime
-import os
+from pathlib import Path
+
+# ── LOAD .env FILE ─────────────────────────────────────────────────────────────
+
+def load_env():
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    os.environ.setdefault(key.strip(), value.strip())
+
+load_env()
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 
-KILN_EMAIL    = os.environ.get("KILN_EMAIL", "")
-KILN_PASSWORD = os.environ.get("KILN_PASSWORD", "")
+KILN_EMAIL    = os.environ.get("KILN_EMAIL", "ceramics@thebodgery.org")
+KILN_PASSWORD = os.environ.get("KILN_PASSWORD", "B0dgeryCeramics!")
 
-SLACK_MEMBERS_URL    = os.environ.get("SLACK_MEMBERS_URL", "")
-SLACK_LEADERSHIP_URL = os.environ.get("SLACK_LEADERSHIP_URL", "")
+SLACK_MEMBERS_URL    = os.environ.get("SLACK_MEMBERS_URL", "https://hooks.slack.com/triggers/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")
+SLACK_LEADERSHIP_URL = os.environ.get("SLACK_LEADERSHIP_URL", "https://hooks.slack.com/triggers/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")
 
 POLL_INTERVAL_SECONDS = 60
 WEB_PORT = 5000
 ABLE_TO_UNLOAD_TEMP = 425
 READY_TO_UNLOAD_TEMP = 200
 HISTORY_FILE = "kiln_firings.json"
+MIN_FIRING_DURATION_HOURS = 12
 
 # ── URLS ───────────────────────────────────────────────────────────────────────
 
@@ -53,53 +68,7 @@ if (ionBtn && ionBtn.shadowRoot) {
 
 # ── PAST FIRINGS STORAGE ───────────────────────────────────────────────────────
 
-EXAMPLE_FIRINGS = [
-    {
-        "id": "example_1",
-        "label": "Slow Bisque ^05 — 12 Mar 2025",
-        "program": "Slow Bisque ^05",
-        "peak": 1888,
-        "duration": "14h 22m",
-        "date": "2025-03-12",
-        "history": [{"time": f"{i}m", "temp": t} for i, t in enumerate(
-            [72,80,95,115,140,170,205,245,290,340,395,455,520,590,665,740,820,900,985,1070,
-             1155,1245,1335,1425,1510,1590,1665,1735,1800,1850,1880,1888,1888,1875,1850,1815,
-             1770,1715,1650,1580,1505,1425,1345,1265,1185,1110,1035,965,900,840,785,730,680,
-             635,592,552,515,480,448,418,390,365,342,320,300,282,265,250,236,223,211,200,190,
-             181,172,165,158,152,146,141,136,132,128,124,121]
-        )]
-    },
-    {
-        "id": "example_2",
-        "label": "Fast Glaze ^6 — 28 Mar 2025",
-        "program": "Fast Glaze ^6",
-        "peak": 2232,
-        "duration": "10h 45m",
-        "date": "2025-03-28",
-        "history": [{"time": f"{i}m", "temp": t} for i, t in enumerate(
-            [72,95,130,175,230,295,370,455,550,650,755,860,965,1070,1175,1280,1385,1490,1595,
-             1700,1800,1890,1970,2045,2110,2165,2205,2228,2232,2232,2225,2205,2175,2135,2085,
-             2025,1955,1878,1795,1708,1618,1525,1432,1340,1250,1163,1078,998,920,848,780,716,
-             657,602,551,504,461,421,385,352,322,295,270,248,228,210,194,179,166,154,143,133,
-             124,116,109,102,96,91,86,82,78,75,73]
-        )]
-    },
-    {
-        "id": "example_3",
-        "label": "Slow Bisque ^05 — 5 Apr 2025",
-        "program": "Slow Bisque ^05",
-        "peak": 1892,
-        "duration": "15h 10m",
-        "date": "2025-04-05",
-        "history": [{"time": f"{i}m", "temp": t} for i, t in enumerate(
-            [68,76,88,104,124,148,176,208,244,284,328,376,428,484,544,608,676,748,824,903,
-             984,1067,1151,1236,1321,1406,1488,1566,1640,1708,1768,1822,1864,1885,1892,1890,
-             1878,1858,1830,1795,1753,1705,1652,1595,1535,1472,1408,1343,1278,1213,1149,1086,
-             1025,966,909,854,802,752,706,662,620,581,545,511,479,449,421,396,372,350,330,311,
-             294,278,263,249,237,225,215,205,196,188,180,173,167,161,156,151]
-        )]
-    },
-]
+EXAMPLE_FIRINGS = []
 
 def load_past_firings():
     if os.path.exists(HISTORY_FILE):
@@ -129,6 +98,8 @@ state = {
     "last_updated": "--",
     "program": "",
     "elapsed": "",
+    "z1": 0,
+    "z3": 0,
 }
 state_lock = threading.Lock()
 past_firings = load_past_firings()
@@ -306,9 +277,12 @@ def build_html():
     z1      = s.get("z1", 0)
     z3      = s.get("z3", 0)
 
-    if s["firing_start"] and status.lower() in ("firing", "complete"):
-        elapsed = int((datetime.now() - s["firing_start"]).total_seconds())
-        h, m = divmod(elapsed // 60, 60)
+    elapsed_from_kiln = s.get("elapsed", "")
+    if elapsed_from_kiln:
+        duration = elapsed_from_kiln
+    elif s["firing_start"] and status.lower() in ("firing", "complete"):
+        secs = int((datetime.now() - s["firing_start"]).total_seconds())
+        h, m = divmod(secs // 60, 60)
         duration = f"{h}h {m}m" if h else f"{m}m"
     else:
         duration = "--"
@@ -332,7 +306,6 @@ def build_html():
     else:
         badge = "idle"
 
-    # Combine example firings + saved past firings
     all_firings = EXAMPLE_FIRINGS + past_firings
     live_history = json.dumps(history)
     all_firings_json = json.dumps(all_firings)
@@ -364,6 +337,9 @@ class KilnHandler(BaseHTTPRequestHandler):
         self.wfile.write(html)
 
     def log_message(self, *args):
+        pass
+
+    def handle_error(self, request, client_address):
         pass
 
 
@@ -412,9 +388,22 @@ def read_kiln_status(page):
     if "/home" in page.url or "kiln-tabs/status" not in page.url:
         raise RuntimeError("session expired")
 
-    status_el = page.query_selector(".status-div ion-text")
-    status = " ".join((status_el.inner_text() or "").split()) if status_el else "Unknown"
+    # Status — scan page text for known keywords, robust to HTML changes
+    body_text = page.inner_text("body").lower()
+    if "firing" in body_text:
+        status = "Firing"
+    elif "complete" in body_text:
+        status = "Complete"
+    elif "error" in body_text:
+        status = "Error"
+    elif "idle" in body_text:
+        status = "Idle"
+    elif "delay" in body_text:
+        status = "Delay"
+    else:
+        status = "Unknown"
 
+    # Program and elapsed time
     program = ""
     elapsed = ""
     for item in page.query_selector_all("ion-item"):
@@ -427,6 +416,7 @@ def read_kiln_status(page):
         elif "Elapsed Firing Time" in label_text:
             elapsed = (labels[1].inner_text() or "").strip()
 
+    # Zone 2 — primary temperature
     zone2_el = page.query_selector("ion-text.kiln-temp-large")
     zone2_str = (zone2_el.inner_text() or "0").replace("°F","").replace("°C","").replace("\xa0","").strip() if zone2_el else "0"
     try:
@@ -434,6 +424,7 @@ def read_kiln_status(page):
     except ValueError:
         zone2 = 0
 
+    # Zone 1 and Zone 3
     zone1, zone3 = 0, 0
     for header in page.query_selector_all("ion-card-header"):
         zone_label_el = header.query_selector("ion-text:not(.tempLabel)")
@@ -451,6 +442,7 @@ def read_kiln_status(page):
         elif "Zone 3" in zone_label:
             zone3 = t
 
+    # Thermocouple check
     zones = {"Zone 1": zone1, "Zone 2": zone2, "Zone 3": zone3}
     broken = []
     if zone1 > 0 and zone2 > 0 and zone3 > 0:
@@ -462,6 +454,7 @@ def read_kiln_status(page):
             if abs(val - avg_others) >= 100:
                 broken.append(zone_name)
 
+    # Kiln name
     title_el = page.query_selector("ion-title, .header-kiln-name")
     name_raw = (title_el.inner_text() or "").strip() if title_el else ""
     name = name_raw if name_raw and name_raw.lower() not in ("login", "") else "Ceramics Kiln"
@@ -488,8 +481,13 @@ def main():
     t.start()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page    = browser.new_context().new_page()
+        browser = p.chromium.launch(headless=True, args=[
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--single-process",
+        ])
+        page = browser.new_context().new_page()
 
         try:
             login(page)
@@ -547,10 +545,9 @@ def main():
                             state["peak_temp"] = 0
 
                         if "idle" in status.lower() and state["firing_start"]:
-                            # Save completed firing to history
-                            if state["history"]:
-                                elapsed = int((datetime.now() - state["firing_start"]).total_seconds())
-                                h, m = divmod(elapsed // 60, 60)
+                            secs = int((datetime.now() - state["firing_start"]).total_seconds())
+                            if state["history"] and secs >= MIN_FIRING_DURATION_HOURS * 3600:
+                                h, m = divmod(secs // 60, 60)
                                 firing_record = {
                                     "id": state["firing_start"].strftime("firing_%Y%m%d_%H%M"),
                                     "label": f"{program or 'Firing'} — {state['firing_start'].strftime('%d %b %Y')}",
@@ -563,6 +560,8 @@ def main():
                                 past_firings.append(firing_record)
                                 save_past_firings(past_firings)
                                 print(f"💾 Firing saved: {firing_record['label']}")
+                            elif state["history"]:
+                                print(f"⏭️  Firing too short ({secs//3600}h {(secs%3600)//60}m) — not saved.")
                             state["firing_start"] = None
 
                         if state["firing_start"] or "complete" in status.lower():
@@ -576,11 +575,9 @@ def main():
                     # Slack notifications
                     was_ready   = last_statuses.get(f"{name}_ready", False)
                     is_complete = "complete" in status.lower()
-                    is_able    = is_complete and temp <= ABLE_TO_UNLOAD_TEMP
-                    is_ready   = is_complete and temp <= READY_TO_UNLOAD_TEMP
+                    is_able     = is_complete and temp <= ABLE_TO_UNLOAD_TEMP
+                    is_ready    = is_complete and temp <= READY_TO_UNLOAD_TEMP
 
-
-                    # Always update last_statuses on first run to set baseline without notifying
                     if first_run:
                         last_statuses[name] = status
                         last_statuses[f"{name}_ready"] = is_able
@@ -589,18 +586,16 @@ def main():
                         prog = f" ({program})" if program else ""
                         if "firing" in status.lower():
                             notify({"KilnStatus": f"🔥 *{name} is now firing{prog}!* The kiln has started a firing cycle."}, members=True)
-                        elif is_able:
-                            notify({"KilnStatus": f"🏺 *{name} is able to be unloaded!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, leadership=True)
                         elif is_ready:
                             notify({"KilnStatus": f"🏺 *{name} is ready to unload!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, members=True)
+                        elif is_able:
+                            notify({"KilnStatus": f"🏺 *{name} is able to be unloaded!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open."}, leadership=True)
                         elif is_complete:
                             notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str}."}, leadership=True)
-                        elif "idle" in status.lower() and prev and "complete" in prev.lower():
+                        elif "idle" in status.lower():
                             notify({"KilnStatus": f"💤 *{name} has been unloaded and is now idle.* Current temp: {temp_str}"}, members=True)
                         elif "error" in status.lower():
                             notify({"KilnStatus": f"🚨 *{name} has an error{prog}!* The kiln has reported an error and may need attention. Current temp: {temp_str}"}, leadership=True)
-                        elif "not connected" in status.lower():
-                            notify({"KilnStatus": f"⚠️ *{name} is not connected!* The monitoring system cannot communicate with the kiln."}, leadership=True)
                         else:
                             notify({"KilnStatus": f"ℹ️ *{name} status update:* {status}{prog} — Current temp: {temp_str}"}, leadership=True)
 
@@ -637,7 +632,12 @@ def main():
                     browser.close()
                 except Exception:
                     pass
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(headless=True, args=[
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--single-process",
+                ])
                 page = browser.new_context().new_page()
                 try:
                     login(page)
