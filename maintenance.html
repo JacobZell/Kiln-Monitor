@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Maintenance</title>
+<script>
+  (function(){
+    try {
+      var pref = localStorage.getItem('kilnTheme') || 'system';
+      var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.documentElement.classList.add('dark');
+    } catch(e) {}
+  })();
+</script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+  body { background: #f5f5f5; color: #111; min-height: 100vh; padding: 1rem; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  header h1 { font-size: 1.1rem; font-weight: 500; color: #444; }
+  .nav-link { font-size: 13px; color: #1565C0; text-decoration: none; margin-left: .8rem; }
+  .nav-link:hover { text-decoration: underline; }
+  .container { max-width: 720px; margin: 0 auto; }
+  .panel { background: #fff; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; border: 0.5px solid #e0e0e0; }
+  .panel h2 { font-size: .85rem; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: .8rem; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem 1rem; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11px; color: #888; }
+  .field input[type=date], .field input[type=number] { font-size: 14px; padding: .45rem .55rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; color: #111; }
+  .stat { font-size: 24px; font-weight: 600; color: #222; }
+  .stat-row { display: flex; align-items: baseline; gap: .8rem; }
+  .stat-row .label { font-size: 11px; color: #888; text-transform: uppercase; }
+  .button-row { display: flex; gap: .5rem; margin-top: 1rem; flex-wrap: wrap; }
+  button { font-size: 13px; padding: .5rem .9rem; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  button.primary { background: #1565C0; color: #fff; border-color: #1565C0; }
+  button.danger  { background: #fff; color: #C62828; border-color: #FFCDD2; }
+  button:hover { filter: brightness(0.97); }
+  .relay-cycles { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin-top: .5rem; }
+  .msg { font-size: 12px; color: #2E7D32; margin-top: .5rem; min-height: 1em; }
+  .msg.error { color: #C62828; }
+  @media (max-width: 600px) { .row { grid-template-columns: 1fr; } .relay-cycles { grid-template-columns: repeat(2, 1fr); } }
+  html.dark body { background: #1a1a1a; color: #eee; }
+  html.dark .panel { background: #222; border-color: #333; }
+  html.dark .panel h2 { color: #888; }
+  html.dark .field input { background: #2a2a2a; color: #eee; border-color: #444; }
+  html.dark .stat { color: #ddd; }
+  html.dark button { background: #2a2a2a; color: #ddd; border-color: #444; }
+  html.dark button.primary { background: #1565C0; color: #fff; border-color: #1565C0; }
+  html.dark button.danger { background: #2a2a2a; color: #EF9A9A; border-color: #5a2a2a; }
+  html.dark .nav-link { color: #64B5F6; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Kiln Maintenance</h1>
+    <div>
+      <a class="nav-link" href="/">← Dashboard</a>
+      <a class="nav-link" href="/logout">Log out</a>
+    </div>
+  </header>
+
+  <div class="panel">
+    <h2>Firing Counters</h2>
+    <div class="stat-row" style="margin-bottom: .6rem;"><span class="stat" id="lifetime">__LIFETIME__</span><span class="label">Lifetime firings</span></div>
+    <div class="stat-row"><span class="stat" id="sinceElement">__SINCE_ELEMENT__</span><span class="label">Firings since last element change</span></div>
+    <div class="button-row">
+      <button class="danger" id="resetLifetimeBtn">Adjust lifetime…</button>
+      <button class="danger" id="resetSinceBtn">Reset since-element to 0</button>
+    </div>
+    <div class="msg" id="counterMsg"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Replacement Dates</h2>
+    <form id="datesForm">
+      <div class="row">
+        <div class="field"><label>Elements</label><input type="date" name="element_replacement_date" value="__ELEMENT_DATE__"></div>
+        <div class="field"><label>Thermocouple 1</label><input type="date" name="tc1_replacement_date" value="__TC1_DATE__"></div>
+        <div class="field"><label>Thermocouple 2</label><input type="date" name="tc2_replacement_date" value="__TC2_DATE__"></div>
+        <div class="field"><label>Thermocouple 3</label><input type="date" name="tc3_replacement_date" value="__TC3_DATE__"></div>
+        <div class="field"><label>Relays (all 4)</label><input type="date" name="relay_replacement_date" value="__RELAY_DATE__"></div>
+      </div>
+      <div style="margin-top: 1rem;">
+        <label style="font-size: 11px; color: #888;">Relay cycle counts at last replacement (1 / 2 / 3 / 4)</label>
+        <div class="relay-cycles">
+          <input type="number" min="0" name="relay_cycle_1" value="__RC1__">
+          <input type="number" min="0" name="relay_cycle_2" value="__RC2__">
+          <input type="number" min="0" name="relay_cycle_3" value="__RC3__">
+          <input type="number" min="0" name="relay_cycle_4" value="__RC4__">
+        </div>
+        <div style="font-size: 11px; color: #888; margin-top: 4px;">Re-enter cycle counts whenever you update the relay replacement date.</div>
+      </div>
+      <div class="button-row">
+        <button type="submit" class="primary">Save</button>
+      </div>
+      <div class="msg" id="datesMsg"></div>
+    </form>
+    <div style="font-size: 11px; color: #888; margin-top: .8rem;">Saving a new element replacement date will reset the firings-since-element-change counter to 0.</div>
+  </div>
+</div>
+<script>
+async function postJson(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  if (r.status === 401) { alert('Session expired. Please sign in again.'); location.href = '/login'; throw new Error('unauthorized'); }
+  return r.json();
+}
+document.getElementById('datesForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  const payload = {
+    element_replacement_date: fd.get('element_replacement_date') || null,
+    tc1_replacement_date:     fd.get('tc1_replacement_date') || null,
+    tc2_replacement_date:     fd.get('tc2_replacement_date') || null,
+    tc3_replacement_date:     fd.get('tc3_replacement_date') || null,
+    relay_replacement_date:   fd.get('relay_replacement_date') || null,
+    relay_cycles_at_last_replacement: [
+      parseInt(fd.get('relay_cycle_1') || '0', 10),
+      parseInt(fd.get('relay_cycle_2') || '0', 10),
+      parseInt(fd.get('relay_cycle_3') || '0', 10),
+      parseInt(fd.get('relay_cycle_4') || '0', 10),
+    ],
+  };
+  const msg = document.getElementById('datesMsg');
+  msg.classList.remove('error'); msg.textContent = 'Saving…';
+  try {
+    const j = await postJson('/api/maintenance', payload);
+    if (j.ok) { msg.textContent = 'Saved.'; setTimeout(() => location.reload(), 600); }
+    else { msg.classList.add('error'); msg.textContent = j.error || 'Save failed.'; }
+  } catch(e) { /* redirected */ }
+});
+document.getElementById('resetSinceBtn').onclick = async () => {
+  if (!confirm('Reset firings-since-element-change to 0?')) return;
+  try {
+    const j = await postJson('/api/maintenance', { firings_since_element_change: 0 });
+    if (j.ok) location.reload();
+  } catch(e) {}
+};
+document.getElementById('resetLifetimeBtn').onclick = async () => {
+  const cur = document.getElementById('lifetime').textContent;
+  const v = prompt('Set lifetime firing count to:', cur);
+  if (v === null) return;
+  const n = parseInt(v, 10);
+  if (isNaN(n) || n < 0) { alert('Enter a non-negative integer.'); return; }
+  try {
+    const j = await postJson('/api/maintenance', { lifetime_firings: n });
+    if (j.ok) location.reload();
+  } catch(e) {}
+};
+</script>
+</body>
+</html>
