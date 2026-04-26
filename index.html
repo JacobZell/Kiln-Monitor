@@ -6,202 +6,354 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Kiln Monitor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+  (function(){
+    try {
+      var pref = localStorage.getItem('kilnTheme') || 'system';
+      var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.documentElement.classList.add('dark');
+    } catch(e) {}
+  })();
+</script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; }
   body { background: #f5f5f5; color: #111; display: flex; flex-direction: column; overflow: hidden; }
-  header { padding: .6rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 0.5px solid #e0e0e0; background: #fff; }
-  header h1 { font-size: .95rem; font-weight: 500; color: #444; }
-  .badge { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 5px; margin-left: 8px; white-space: nowrap; }
+  header { padding: .5rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-shrink: 0; border-bottom: 0.5px solid #e0e0e0; background: #fff; }
+  .header-left { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+  .header-right { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+  header h1 { font-size: .95rem; font-weight: 500; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 5px; white-space: nowrap; }
   .badge.idle     { background: #f0f0f0; color: #666; }
   .badge.firing   { background: #FFF3E0; color: #E65100; }
+  .badge.cooling  { background: #E1F5FE; color: #0277BD; }
   .badge.complete { background: #E8F5E9; color: #2E7D32; }
   .badge.ready    { background: #E3F2FD; color: #1565C0; }
   .badge.error    { background: #FFEBEE; color: #C62828; }
-  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: .5rem .75rem; flex-shrink: 0; background: #fff; border-bottom: 0.5px solid #e0e0e0; }
-  .card { background: #f7f7f7; border-radius: 8px; padding: .4rem .7rem; min-width: 0; }
-  .card .label { font-size: 9px; color: #888; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card .value { font-size: 16px; font-weight: 500; white-space: nowrap; }
-  .card.wide { grid-column: span 2; }
-  .main { display: flex; flex: 1; overflow: hidden; }
-  .chart-area { flex: 1; display: flex; flex-direction: column; padding: .75rem; min-height: 0; min-width: 0; }
+  .updated { font-size: 11px; color: #888; white-space: nowrap; }
+  .icon-btn { background: none; border: 1px solid #ddd; color: #555; font-size: 12px; padding: 4px 8px; border-radius: 5px; cursor: pointer; line-height: 1; }
+  .icon-btn:hover { background: #f0f0f0; }
+  .icon-btn:active { background: #e8e8e8; }
+  .nav-link { font-size: 12px; color: #1565C0; text-decoration: none; padding: 4px 6px; }
+  .nav-link:hover { text-decoration: underline; }
+  .admin-only { display: none; }
+  body.is-admin .admin-only { display: inline-flex; }
+  .main { display: grid; grid-template-columns: 220px 1fr 220px; flex: 1; overflow: hidden; min-height: 0; }
+  .info-col { background: #fff; border-right: 0.5px solid #e0e0e0; padding: .65rem .75rem; overflow-y: auto; display: flex; flex-direction: column; gap: .55rem; }
+  .info-card { background: #f7f7f7; border-radius: 8px; padding: .45rem .65rem; }
+  .info-card .label { font-size: 9px; color: #888; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  .info-card .value { font-size: 16px; font-weight: 500; color: #222; word-break: break-word; }
+  .info-card.primary { background: #FFF3E0; }
+  .info-card.primary .label { color: #E65100; }
+  .info-card.primary .value { font-size: 28px; font-weight: 600; color: #E65100; }
+  .chart-area { display: flex; flex-direction: column; padding: .75rem; min-height: 0; min-width: 0; }
   .chart-title { font-size: 10px; color: #888; margin-bottom: .4rem; }
   .chart-wrap { flex: 1; position: relative; min-height: 0; }
   canvas { display: block; }
-  .sidebar { width: 220px; flex-shrink: 0; border-left: 0.5px solid #e0e0e0; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
-  .sidebar h2 { font-size: .75rem; font-weight: 500; color: #888; padding: .6rem .85rem .4rem; border-bottom: 0.5px solid #f0f0f0; flex-shrink: 0; }
+  .sidebar { border-left: 0.5px solid #e0e0e0; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-head { padding: .55rem .75rem .4rem; border-bottom: 0.5px solid #f0f0f0; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: .35rem; }
+  .sidebar-head h2 { font-size: .75rem; font-weight: 500; color: #888; }
   .firing-list { overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
-  .firing-item { padding: .55rem .85rem; border-bottom: 0.5px solid #f0f0f0; cursor: pointer; transition: background .15s; }
-  .firing-item:active { background: #f0f0f0; }
+  .firing-item { padding: .55rem .75rem; border-bottom: 0.5px solid #f0f0f0; cursor: pointer; transition: background .15s; }
+  .firing-item:hover { background: #fafafa; }
   .firing-item.active { background: #EEF4FF; }
   .firing-item .fi-label { font-size: 12px; font-weight: 500; color: #333; }
   .firing-item .fi-meta { font-size: 10px; color: #999; margin-top: 2px; }
   .firing-item .fi-badge { font-size: 9px; background: #f0f0f0; color: #555; padding: 1px 5px; border-radius: 4px; display: inline-block; margin-top: 3px; }
-  .fi-delete { float: right; background: none; border: none; cursor: pointer; font-size: 13px; color: #ccc; padding: 0 2px; line-height: 1; }
-  .fi-delete:hover { color: #e74c3c; }
-  .updated { font-size: 9px; color: #bbb; }
-  @media (max-width: 640px) {
+  .firing-item .fi-actions { display: none; gap: .35rem; margin-top: 6px; }
+  body.editing .firing-item .fi-actions { display: flex; }
+  .fi-action { font-size: 10px; padding: 3px 7px; border-radius: 4px; border: none; cursor: pointer; }
+  .fi-action.delete { background: #FFEBEE; color: #C62828; }
+  .fi-action.merge  { background: #E3F2FD; color: #1565C0; }
+  .fi-action:disabled { opacity: .4; cursor: not-allowed; }
+  @media (max-width: 800px) {
     body { overflow: auto; }
-    .main { flex-direction: column; overflow: visible; height: auto; }
-    .cards { grid-template-columns: repeat(2, 1fr); }
-    .card.wide { grid-column: span 2; }
-    .card .value { font-size: 20px; }
-    .chart-area { padding: .75rem; height: 55vw; min-height: 240px; flex: none; }
-    .chart-wrap { height: 100%; }
-    .sidebar { width: 100%; border-left: none; border-top: 0.5px solid #e0e0e0; max-height: 280px; }
-    .firing-list { max-height: 240px; }
+    .main { display: flex; flex-direction: column; height: auto; overflow: visible; }
+    .info-col { border-right: none; border-bottom: 0.5px solid #e0e0e0; flex-direction: row; flex-wrap: wrap; gap: .35rem; padding: .5rem; }
+    .info-col .info-card { flex: 1 1 calc(50% - .35rem); min-width: 0; }
+    .info-col .info-card.primary { flex: 1 1 100%; }
+    .chart-area { padding: .5rem; height: 60vw; min-height: 280px; }
+    .sidebar { border-left: none; border-top: 0.5px solid #e0e0e0; max-height: 320px; }
   }
-  @media (prefers-color-scheme: dark) {
-    body { background: #1a1a1a; color: #eee; }
-    header, .cards, .sidebar { background: #222; border-color: #333; }
-    .card { background: #2a2a2a; }
-    .card .label { color: #888; }
-    .badge.idle { background: #333; color: #aaa; }
-    .badge.firing { background: #3E2800; color: #FFB74D; }
-    .badge.complete { background: #1B3A1F; color: #81C784; }
-    .badge.ready { background: #0D2A45; color: #64B5F6; }
-    .badge.error { background: #3B0000; color: #EF9A9A; }
-    .sidebar h2 { color: #666; border-color: #2a2a2a; }
-    .firing-item { border-color: #2a2a2a; }
-    .firing-item:active { background: #2a2a2a; }
-    .firing-item.active { background: #0D2A45; }
-    .firing-item .fi-label { color: #ddd; }
-    .firing-item .fi-meta { color: #666; }
-    .firing-item .fi-badge { background: #333; color: #aaa; }
-    .chart-title { color: #666; }
-  }
+  html.dark body { background: #1a1a1a; color: #eee; }
+  html.dark header, html.dark .info-col, html.dark .sidebar { background: #222; border-color: #333; }
+  html.dark .info-card { background: #2a2a2a; }
+  html.dark .info-card .value { color: #ddd; }
+  html.dark .info-card.primary { background: #3E2800; }
+  html.dark .info-card.primary .label { color: #FFB74D; }
+  html.dark .info-card.primary .value { color: #FFB74D; }
+  html.dark .badge.idle { background: #333; color: #aaa; }
+  html.dark .badge.firing { background: #3E2800; color: #FFB74D; }
+  html.dark .badge.cooling { background: #0D2A45; color: #64B5F6; }
+  html.dark .badge.complete { background: #1B3A1F; color: #81C784; }
+  html.dark .badge.ready { background: #0D2A45; color: #64B5F6; }
+  html.dark .badge.error { background: #3B0000; color: #EF9A9A; }
+  html.dark .updated { color: #888; }
+  html.dark .icon-btn { background: #2a2a2a; border-color: #444; color: #ccc; }
+  html.dark .icon-btn:hover { background: #333; }
+  html.dark .nav-link { color: #64B5F6; }
+  html.dark .sidebar-head h2 { color: #666; border-color: #2a2a2a; }
+  html.dark .firing-item { border-color: #2a2a2a; }
+  html.dark .firing-item:hover { background: #2a2a2a; }
+  html.dark .firing-item.active { background: #0D2A45; }
+  html.dark .firing-item .fi-label { color: #ddd; }
+  html.dark .firing-item .fi-meta { color: #666; }
+  html.dark .firing-item .fi-badge { background: #333; color: #aaa; }
+  html.dark .chart-title { color: #666; }
+  html.dark .fi-action.delete { background: #3B0000; color: #EF9A9A; }
+  html.dark .fi-action.merge  { background: #0D2A45; color: #64B5F6; }
 </style>
 </head>
 <body>
 <header>
-  <h1><span id="kilnName">__KILN_NAME__</span> <span id="statusBadge" class="badge __BADGE_CLASS__">__STATUS__</span></h1>
-  <span id="lastUpdated" class="updated">__UPDATED__</span>
+  <div class="header-left">
+    <h1 id="kilnName">__KILN_NAME__</h1>
+    <span class="badge __BADGE_CLASS__" id="statusBadge">__STATUS__</span>
+  </div>
+  <div class="header-right">
+    <span class="updated" id="updatedAt" data-iso="__UPDATED_ISO__">__UPDATED__</span>
+    <button class="icon-btn" id="refreshBtn" title="Refresh">⟳</button>
+    <button class="icon-btn" id="themeBtn" title="Theme">◐</button>
+    <a class="nav-link admin-only" href="/maintenance">Maintenance</a>
+    <button class="icon-btn admin-only" id="updateBtn" title="Pull updates and restart">Update</button>
+    <a class="nav-link admin-only" href="/logout">Log out</a>
+    <a class="nav-link" href="/login" id="loginLink">Admin</a>
+  </div>
 </header>
-<div class="cards">
-  <div class="card"><div class="label">Zone 2 (primary)</div><div id="tempZ2" class="value">__TEMP__°F</div></div>
-  <div class="card"><div class="label">Zone 1</div><div id="tempZ1" class="value">__Z1__°F</div></div>
-  <div class="card"><div class="label">Zone 3</div><div id="tempZ3" class="value">__Z3__°F</div></div>
-  <div class="card"><div class="label">Peak</div><div id="peakVal" class="value">__PEAK__</div></div>
-  <div class="card"><div class="label">Duration</div><div id="durationVal" class="value">__DURATION__</div></div>
-  <div class="card"><div class="label">Rate</div><div id="rateVal" class="value">__RATE__</div></div>
-  <div class="card wide"><div class="label">Program</div><div id="programVal" class="value" style="font-size:13px;padding-top:2px;">__PROGRAM__</div></div>
-</div>
 <div class="main">
+  <div class="info-col">
+    <div class="info-card"><div class="label">Program / Status</div><div class="value">__PROGRAM_STATUS__</div></div>
+    <div class="info-card"><div class="label">Zone 1</div><div class="value">__Z1__°F</div></div>
+    <div class="info-card primary"><div class="label">Zone 2 (primary)</div><div class="value">__TEMP__°F</div></div>
+    <div class="info-card"><div class="label">Zone 3</div><div class="value">__Z3__°F</div></div>
+    <div class="info-card"><div class="label">Total Duration</div><div class="value">__DURATION__</div></div>
+    <div class="info-card"><div class="label">Peak Temperature</div><div class="value">__PEAK__</div></div>
+    <div class="info-card"><div class="label">Time to Peak</div><div class="value">__DURATION_TO_PEAK__</div></div>
+  </div>
   <div class="chart-area">
-    <div class="chart-title">Temperature (°F) over time into firing</div>
+    <div class="chart-title">Temperature (°F) over time</div>
     <div class="chart-wrap">
-      <canvas id="kilnChart" role="img" aria-label="Kiln temperature over time">Temperature history</canvas>
+      <canvas id="kilnChart" role="img" aria-label="Kiln temperature over time"></canvas>
     </div>
   </div>
   <div class="sidebar">
-    <h2>Past firings</h2>
+    <div class="sidebar-head">
+      <h2>Past firings</h2>
+      <button class="icon-btn admin-only" id="editBtn" title="Edit past firings">Edit</button>
+    </div>
     <div class="firing-list" id="firingList"></div>
   </div>
 </div>
 <script>
 const allFirings = __ALL_FIRINGS__;
-const liveFiring = { id: 'live', label: 'Live', history: __LIVE_HISTORY__ };
+const liveFiring = { id: 'live', label: 'Live', history: __LIVE_HISTORY__, start_iso: __LIVE_START_ISO__ };
+const isAdmin = __IS_ADMIN__;
 let activeId = 'live';
-function getHistory(id) {
-  if (id === 'live') return liveFiring.history;
-  const f = allFirings.find(x => x.id === id);
-  return f ? f.history : [];
+let editing = false;
+
+if (isAdmin) {
+  document.body.classList.add('is-admin');
+  document.getElementById('loginLink').style.display = 'none';
+}
+
+function fmtClock(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch(e) { return iso; }
+}
+function fmtElapsed(ms) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  if (h) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+function fmtFullStamp(iso) {
+  if (!iso) return '--';
+  try {
+    const d = new Date(iso);
+    const date = d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, timeZoneName: 'short' });
+    return date.replace(',', '') + ', ' + time;
+  } catch(e) { return iso; }
+}
+
+function getFiring(id) {
+  if (id === 'live') return liveFiring;
+  return allFirings.find(x => x.id === id) || { history: [], start_iso: null };
+}
+function pointTimeMs(p, idx) {
+  if (p.time && p.time.includes && p.time.includes('T')) {
+    const t = Date.parse(p.time);
+    if (!isNaN(t)) return t;
+  }
+  return idx * 60000;
 }
 function buildChart(id) {
-  const history = getHistory(id);
-  const isLive = (id === 'live');
-  const TARGET = isLive ? Math.max(history.length, 1500) : history.length;
-  const rawLabels = history.map(h => h.time || '');
-  const rawTemps  = history.map(h => h.temp);
-  const labels = isLive ? rawLabels.concat(Array(TARGET - rawLabels.length).fill('')) : rawLabels;
-  const temps  = isLive ? rawTemps.concat(Array(TARGET - rawTemps.length).fill(null)) : rawTemps;
+  const firing = getFiring(id);
+  const history = firing.history || [];
+  const startMs = firing.start_iso ? Date.parse(firing.start_iso) : (history.length ? pointTimeMs(history[0], 0) : Date.now());
+
+  const labels = history.map((p, i) => {
+    if (p.time && p.time.includes && p.time.includes('T')) return fmtClock(p.time);
+    return p.time || '';
+  });
+  const z2 = history.map(p => p.temp);
+  const z1 = history.map(p => (p.z1 != null ? p.z1 : null));
+  const z3 = history.map(p => (p.z3 != null ? p.z3 : null));
+  const elapsedMs = history.map((p, i) => pointTimeMs(p, i) - startMs);
+
   if (window._kilnChart) window._kilnChart.destroy();
   window._kilnChart = new Chart(document.getElementById('kilnChart'), {
     type: 'line',
-    data: { labels, datasets: [{
-      label: 'Temperature',
-      data: temps,
-      borderColor: '#D85A30',
-      backgroundColor: 'rgba(216,90,48,0.08)',
-      fill: true, tension: 0, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2
-    }]},
+    data: {
+      labels,
+      datasets: [
+        { label: 'Zone 1', data: z1, borderColor: 'rgba(120,120,120,0.45)', backgroundColor: 'transparent', borderWidth: 1, pointRadius: 0, pointHoverRadius: 3, tension: 0, spanGaps: true, order: 2 },
+        { label: 'Zone 3', data: z3, borderColor: 'rgba(60,140,200,0.45)',  backgroundColor: 'transparent', borderWidth: 1, pointRadius: 0, pointHoverRadius: 3, tension: 0, spanGaps: true, order: 2 },
+        { label: 'Zone 2', data: z2, borderColor: '#D85A30', backgroundColor: 'rgba(216,90,48,0.10)', fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0, order: 1 },
+      ],
+    },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => Math.round(c.parsed.y) + '°F' } } },
+      plugins: {
+        legend: { display: true, position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            title: items => {
+              if (!items.length) return '';
+              const i = items[0].dataIndex;
+              const wall = labels[i];
+              const elapsed = fmtElapsed(elapsedMs[i]);
+              return wall + '  (' + elapsed + ' into firing)';
+            },
+            label: c => c.dataset.label + ': ' + Math.round(c.parsed.y) + '°F',
+          },
+        },
+      },
       scales: {
-        x: { ticks: { maxTicksLimit: 8, font: { size: 9 }, color: '#888', autoSkip: true, maxRotation: 0 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Time into firing', font: { size: 10 }, color: '#888' } },
-        y: { min: 0, max: 2400, ticks: { callback: v => v + '°F', font: { size: 9 }, color: '#888', stepSize: 400 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Temperature (°F)', font: { size: 10 }, color: '#888' } }
-      }
-    }
+        x: { ticks: { maxTicksLimit: 8, font: { size: 9 }, color: '#888', autoSkip: true, maxRotation: 0 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Time of day', font: { size: 10 }, color: '#888' } },
+        y: { min: 0, max: 2400, ticks: { callback: v => v + '°F', font: { size: 9 }, color: '#888', stepSize: 400 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Temperature (°F)', font: { size: 10 }, color: '#888' } },
+      },
+    },
   });
+}
+function canMergeWithPrevious(idx, sortedFirings) {
+  if (idx <= 0) return false;
+  const cur = sortedFirings[idx];
+  const prev = sortedFirings[idx - 1];
+  if (!cur.program || !prev.program) return false;
+  return cur.program === prev.program;
 }
 function renderList() {
   const list = document.getElementById('firingList');
   list.innerHTML = '';
   const liveEl = document.createElement('div');
   liveEl.className = 'firing-item' + (activeId === 'live' ? ' active' : '');
-  liveEl.innerHTML = '<div class="fi-label">&#x1F534; Live</div><div class="fi-meta">Current firing</div>';
+  liveEl.innerHTML = '<div class="fi-label">🔴 Live</div><div class="fi-meta">Current firing</div>';
   liveEl.onclick = () => { activeId = 'live'; renderList(); buildChart('live'); };
   list.appendChild(liveEl);
-  [...allFirings].reverse().forEach(f => {
+
+  const sorted = [...allFirings].slice().reverse();
+  sorted.forEach((f, idx) => {
     const el = document.createElement('div');
     el.className = 'firing-item' + (activeId === f.id ? ' active' : '');
-    el.innerHTML = `<div class="fi-label">${f.label}<button class="fi-delete" title="Delete firing" onclick="deleteFiring(event,'${f.id}')">&#x1F5D1;</button></div><div class="fi-meta">Peak: ${f.peak}°F &middot; ${f.duration}</div><span class="fi-badge">${f.program}</span>`;
-    el.onclick = () => { activeId = f.id; renderList(); buildChart(f.id); };
+    const peak = f.peak != null ? f.peak + '°F' : '--';
+    const dur  = f.duration || '--';
+    const tp   = f.duration_to_peak ? ' · to peak: ' + f.duration_to_peak : '';
+    el.innerHTML =
+      '<div class="fi-label">' + (f.label || f.id) + '</div>' +
+      '<div class="fi-meta">Peak: ' + peak + ' · ' + dur + tp + '</div>' +
+      '<span class="fi-badge">' + (f.program || '—') + '</span>' +
+      '<div class="fi-actions">' +
+        '<button class="fi-action delete" data-id="' + f.id + '">Delete</button>' +
+        '<button class="fi-action merge"  data-id="' + f.id + '" ' + (canMergeWithPrevious(idx, sorted) ? '' : 'disabled') + '>Merge ↑</button>' +
+      '</div>';
+    el.onclick = (ev) => {
+      if (ev.target && ev.target.classList && ev.target.classList.contains('fi-action')) return;
+      activeId = f.id; renderList(); buildChart(f.id);
+    };
     list.appendChild(el);
   });
+
+  list.querySelectorAll('.fi-action.delete').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-id');
+      if (!confirm('Delete this firing? This cannot be undone.')) return;
+      const r = await fetch('/api/firings/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
+      if (r.ok) location.reload();
+      else if (r.status === 401) { alert('Logged out. Please sign in again.'); location.href = '/login'; }
+      else alert('Delete failed.');
+    };
+  });
+  list.querySelectorAll('.fi-action.merge').forEach(btn => {
+    btn.onclick = async () => {
+      const id = btn.getAttribute('data-id');
+      if (!confirm('Merge this firing into the previous one with the same program?\n\nData from the older firing above the newer firing\'s starting temp will be discarded.')) return;
+      const r = await fetch('/api/firings/merge', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
+      if (r.ok) location.reload();
+      else if (r.status === 401) { alert('Logged out. Please sign in again.'); location.href = '/login'; }
+      else alert('Merge failed.');
+    };
+  });
 }
-function deleteFiring(event, id) {
-  event.stopPropagation();
-  if (!confirm('Are you sure you want to delete this firing? This cannot be undone.')) return;
-  fetch('/firing/' + id, { method: 'DELETE' })
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        const idx = allFirings.findIndex(f => f.id === id);
-        if (idx !== -1) allFirings.splice(idx, 1);
-        if (activeId === id) { activeId = 'live'; buildChart('live'); }
-        renderList();
-      } else {
-        alert('Could not delete firing.');
-      }
-    })
-    .catch(() => alert('Error connecting to server.'));
+
+function applyTheme(pref) {
+  if (pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
 }
+function cycleTheme() {
+  const cur = localStorage.getItem('kilnTheme') || 'system';
+  const next = cur === 'system' ? 'light' : (cur === 'light' ? 'dark' : 'system');
+  localStorage.setItem('kilnTheme', next);
+  applyTheme(next);
+  document.getElementById('themeBtn').title = 'Theme: ' + next;
+}
+
+document.getElementById('updatedAt').textContent = fmtFullStamp(document.getElementById('updatedAt').getAttribute('data-iso')) || document.getElementById('updatedAt').textContent;
+document.getElementById('themeBtn').title = 'Theme: ' + (localStorage.getItem('kilnTheme') || 'system');
+document.getElementById('themeBtn').onclick = cycleTheme;
+document.getElementById('refreshBtn').onclick = () => location.reload();
+const editBtn = document.getElementById('editBtn');
+if (editBtn) editBtn.onclick = () => {
+  editing = !editing;
+  document.body.classList.toggle('editing', editing);
+  editBtn.textContent = editing ? 'Done' : 'Edit';
+};
+const updateBtn = document.getElementById('updateBtn');
+if (updateBtn) updateBtn.onclick = async () => {
+  const status = document.getElementById('statusBadge').textContent.toLowerCase();
+  if (status.includes('firing') || status.includes('cooling')) {
+    const typed = prompt('⚠️  A firing is currently active (' + status + ').\n\nUpdating will restart the monitor and may briefly interrupt logging. The current firing\'s in-progress data is snapshotted and will be restored after restart.\n\nType UPDATE to confirm:', '');
+    if (typed !== 'UPDATE') return;
+  } else {
+    if (!confirm('Pull latest code from git and restart the monitor?')) return;
+  }
+  try {
+    const r = await fetch('/api/update', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({}) });
+    if (r.status === 401) { alert('Logged out. Please sign in again.'); location.href = '/login'; return; }
+    const j = await r.json();
+    if (j.ok) {
+      alert('Update started. The monitor will restart shortly. Page will reload in 20s.');
+      setTimeout(() => location.reload(), 20000);
+    } else {
+      alert('Update failed: ' + (j.error || 'unknown'));
+    }
+  } catch(e) {
+    alert('Update request failed: ' + e);
+  }
+};
 
 renderList();
 window.addEventListener('load', () => buildChart('live'));
 
-function refreshData() {
-  fetch('/state')
-    .then(r => r.json())
-    .then(d => {
-      document.getElementById('kilnName').textContent = d.name;
-      const badge = document.getElementById('statusBadge');
-      badge.textContent = d.status;
-      badge.className = 'badge ' + d.badge;
-      document.getElementById('lastUpdated').textContent = d.last_updated;
-      document.getElementById('tempZ2').textContent = d.temp + '°F';
-      document.getElementById('tempZ1').textContent = d.z1 + '°F';
-      document.getElementById('tempZ3').textContent = d.z3 + '°F';
-      document.getElementById('peakVal').textContent = d.peak;
-      document.getElementById('durationVal').textContent = d.duration;
-      document.getElementById('rateVal').textContent = d.rate;
-      document.getElementById('programVal').textContent = d.program;
-      if (activeId === 'live') {
-        liveFiring.history = d.history;
-        buildChart('live');
-      }
-      const newFirings = d.all_firings;
-      if (JSON.stringify(newFirings) !== JSON.stringify(allFirings)) {
-        allFirings.splice(0, allFirings.length, ...newFirings);
-        renderList();
-      }
-    })
-    .catch(() => {});
-}
-setInterval(refreshData, 60000);
+setInterval(() => { if (!editing) location.reload(); }, 60000);
 </script>
 </body>
 </html>

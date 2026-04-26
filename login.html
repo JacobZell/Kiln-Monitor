@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Admin — Sign in</title>
+<script>
+  (function(){
+    try {
+      var pref = localStorage.getItem('kilnTheme') || 'system';
+      var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      if (dark) document.documentElement.classList.add('dark');
+    } catch(e) {}
+  })();
+</script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+  body { background: #f5f5f5; color: #111; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .card { background: #fff; border: 0.5px solid #e0e0e0; border-radius: 10px; padding: 1.5rem 1.75rem; width: 100%; max-width: 360px; }
+  h1 { font-size: 1.05rem; font-weight: 500; color: #444; margin-bottom: .25rem; }
+  p.sub { font-size: 12px; color: #888; margin-bottom: 1.25rem; }
+  label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+  input[type=password] { width: 100%; font-size: 15px; padding: .55rem .65rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; color: #111; }
+  button { width: 100%; margin-top: 1rem; font-size: 14px; padding: .6rem 1rem; border-radius: 6px; border: none; background: #1565C0; color: #fff; cursor: pointer; }
+  button:hover { filter: brightness(0.95); }
+  .msg { font-size: 12px; color: #C62828; margin-top: .75rem; min-height: 1em; }
+  .nav-link { display: block; text-align: center; font-size: 12px; color: #1565C0; text-decoration: none; margin-top: .9rem; }
+  .nav-link:hover { text-decoration: underline; }
+  html.dark body { background: #1a1a1a; color: #eee; }
+  html.dark .card { background: #222; border-color: #333; }
+  html.dark input[type=password] { background: #2a2a2a; color: #eee; border-color: #444; }
+  html.dark .nav-link { color: #64B5F6; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Kiln Admin</h1>
+  <p class="sub">__SUBTITLE__</p>
+  <form id="loginForm">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" autofocus required>
+    <button type="submit">Sign in</button>
+    <div class="msg" id="msg">__ERROR__</div>
+  </form>
+  <a class="nav-link" href="/">← Back to dashboard</a>
+</div>
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const pw = document.getElementById('pw').value;
+  const msg = document.getElementById('msg');
+  msg.textContent = 'Signing in…';
+  try {
+    const r = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password: pw }) });
+    const j = await r.json();
+    if (j.ok) {
+      const next = new URLSearchParams(location.search).get('next') || '/maintenance';
+      location.href = next;
+    } else {
+      msg.textContent = j.error || 'Wrong password.';
+    }
+  } catch(e) {
+    msg.textContent = 'Login failed: ' + e;
+  }
+});
+</script>
+</body>
+</html>

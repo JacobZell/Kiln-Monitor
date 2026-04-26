@@ -1,0 +1,14 @@
+# Runtime data
+kiln_firings.json
+kiln_maintenance.json
+current_firing.json
+kiln.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
