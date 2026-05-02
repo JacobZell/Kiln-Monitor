@@ -7,171 +7,335 @@
 <title>Kiln Monitor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; }
-  body { background: #f5f5f5; color: #111; display: flex; flex-direction: column; overflow: hidden; }
-  header { padding: .6rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; border-bottom: 0.5px solid #e0e0e0; background: #fff; }
-  header h1 { font-size: .95rem; font-weight: 500; color: #444; }
-  .badge { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: 5px; margin-left: 8px; white-space: nowrap; }
-  .badge.idle     { background: #f0f0f0; color: #666; }
-  .badge.firing   { background: #FFF3E0; color: #E65100; }
-  .badge.complete { background: #E8F5E9; color: #2E7D32; }
-  .badge.ready    { background: #E3F2FD; color: #1565C0; }
-  .badge.error    { background: #FFEBEE; color: #C62828; }
-  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: .5rem .75rem; flex-shrink: 0; background: #fff; border-bottom: 0.5px solid #e0e0e0; }
-  .card { background: #f7f7f7; border-radius: 8px; padding: .4rem .7rem; min-width: 0; }
-  .card .label { font-size: 9px; color: #888; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card .value { font-size: 16px; font-weight: 500; white-space: nowrap; }
-  .card.wide { grid-column: span 2; }
-  .main { display: flex; flex: 1; overflow: hidden; }
-  .chart-area { flex: 1; display: flex; flex-direction: column; padding: .75rem; min-height: 0; min-width: 0; }
-  .chart-title { font-size: 10px; color: #888; margin-bottom: .4rem; }
-  .chart-wrap { flex: 1; position: relative; min-height: 0; }
-  canvas { display: block; }
-  .sidebar { width: 220px; flex-shrink: 0; border-left: 0.5px solid #e0e0e0; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
-  .sidebar h2 { font-size: .75rem; font-weight: 500; color: #888; padding: .6rem .85rem .4rem; border-bottom: 0.5px solid #f0f0f0; flex-shrink: 0; }
-  .firing-list { overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
-  .firing-item { padding: .55rem .85rem; border-bottom: 0.5px solid #f0f0f0; cursor: pointer; transition: background .15s; }
-  .firing-item:active { background: #f0f0f0; }
-  .firing-item.active { background: #EEF4FF; }
-  .firing-item .fi-label { font-size: 12px; font-weight: 500; color: #333; }
-  .firing-item .fi-meta { font-size: 10px; color: #999; margin-top: 2px; }
-  .firing-item .fi-badge { font-size: 9px; background: #f0f0f0; color: #555; padding: 1px 5px; border-radius: 4px; display: inline-block; margin-top: 3px; }
-  .fi-delete { float: right; background: none; border: none; cursor: pointer; font-size: 13px; color: #ccc; padding: 0 2px; line-height: 1; }
-  .fi-delete:hover { color: #e74c3c; }
-  .updated { font-size: 9px; color: #bbb; }
-  @media (max-width: 640px) {
-    body { overflow: auto; }
-    .main { flex-direction: column; overflow: visible; height: auto; }
-    .cards { grid-template-columns: repeat(2, 1fr); }
-    .card.wide { grid-column: span 2; }
-    .card .value { font-size: 20px; }
-    .chart-area { padding: .75rem; height: 55vw; min-height: 240px; flex: none; }
-    .chart-wrap { height: 100%; }
-    .sidebar { width: 100%; border-left: none; border-top: 0.5px solid #e0e0e0; max-height: 280px; }
-    .firing-list { max-height: 240px; }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+
+/* ── light theme (default) ── */
+body {
+  --bg:        #f5f5f5;
+  --surface:   #fff;
+  --border:    #e0e0e0;
+  --border2:   #f0f0f0;
+  --card:      #f7f7f7;
+  --text:      #111;
+  --text2:     #444;
+  --text3:     #888;
+  --text4:     #bbb;
+  --badge-idle-bg: #f0f0f0; --badge-idle-fg: #666;
+  --badge-firing-bg: #FFF3E0; --badge-firing-fg: #E65100;
+  --badge-complete-bg: #E8F5E9; --badge-complete-fg: #2E7D32;
+  --badge-ready-bg: #E3F2FD; --badge-ready-fg: #1565C0;
+  --badge-error-bg: #FFEBEE; --badge-error-fg: #C62828;
+  --fi-active: #EEF4FF;
+  --fi-hover: #f5f5f5;
+  background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+body.dark {
+  --bg:        #1a1a1a;
+  --surface:   #222;
+  --border:    #333;
+  --border2:   #2a2a2a;
+  --card:      #2a2a2a;
+  --text:      #eee;
+  --text2:     #bbb;
+  --text3:     #666;
+  --text4:     #444;
+  --badge-idle-bg: #333; --badge-idle-fg: #aaa;
+  --badge-firing-bg: #3E2800; --badge-firing-fg: #FFB74D;
+  --badge-complete-bg: #1B3A1F; --badge-complete-fg: #81C784;
+  --badge-ready-bg: #0D2A45; --badge-ready-fg: #64B5F6;
+  --badge-error-bg: #3B0000; --badge-error-fg: #EF9A9A;
+  --fi-active: #0D2A45;
+  --fi-hover: #2a2a2a;
+}
+
+/* ── header ── */
+header {
+  padding: .55rem 1rem; display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; border-bottom: 0.5px solid var(--border); background: var(--surface);
+  gap: .5rem;
+}
+header h1 { font-size: .9rem; font-weight: 500; color: var(--text2); white-space: nowrap; }
+.badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 5px; margin-left: 6px; white-space: nowrap; }
+.badge.idle     { background: var(--badge-idle-bg);     color: var(--badge-idle-fg); }
+.badge.firing   { background: var(--badge-firing-bg);   color: var(--badge-firing-fg); }
+.badge.complete { background: var(--badge-complete-bg); color: var(--badge-complete-fg); }
+.badge.ready    { background: var(--badge-ready-bg);    color: var(--badge-ready-fg); }
+.badge.error    { background: var(--badge-error-bg);    color: var(--badge-error-fg); }
+.header-right { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
+#lastUpdated { font-size: 9px; color: var(--text4); white-space: nowrap; }
+.hdr-btn {
+  font-size: 11px; border: 0.5px solid var(--border); border-radius: 5px;
+  padding: 3px 8px; background: none; color: var(--text3); cursor: pointer;
+  white-space: nowrap;
+}
+.hdr-btn:hover { background: var(--card); color: var(--text2); }
+
+/* ── main layout ── */
+.wrap { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+/* ── info column ── */
+.info-col {
+  width: 150px; flex-shrink: 0; background: var(--surface);
+  border-right: 0.5px solid var(--border); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 1px; padding: 6px;
+}
+.ic { background: var(--card); border-radius: 7px; padding: .45rem .6rem; }
+.ic .ic-lbl { font-size: 9px; color: var(--text3); margin-bottom: 2px; text-transform: uppercase; letter-spacing: .04em; }
+.ic .ic-val { font-size: 15px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ic.ic-z2 .ic-val { font-size: 28px; font-weight: 600; line-height: 1.1; }
+.ic.ic-program .ic-val { font-size: 12px; }
+
+/* ── chart area ── */
+.chart-area { flex: 1; display: flex; flex-direction: column; padding: .6rem; min-height: 0; min-width: 0; }
+.chart-wrap { flex: 1; position: relative; min-height: 0; }
+canvas { display: block; }
+
+/* ── sidebar ── */
+.sidebar {
+  width: 210px; flex-shrink: 0; border-left: 0.5px solid var(--border);
+  background: var(--surface); display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-head {
+  padding: .55rem .85rem .4rem; border-bottom: 0.5px solid var(--border2);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.sidebar-head h2 { font-size: .72rem; font-weight: 500; color: var(--text3); }
+#editBtn {
+  font-size: 10px; padding: 2px 7px; border: 0.5px solid var(--border); border-radius: 4px;
+  background: none; color: var(--text3); cursor: pointer;
+}
+#editBtn:hover { background: var(--card); }
+#editBtn.active { background: var(--card); color: var(--text2); border-color: var(--text3); }
+.firing-list { overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+.firing-item { padding: .5rem .85rem; border-bottom: 0.5px solid var(--border2); cursor: pointer; }
+.firing-item:active, .firing-item:hover { background: var(--fi-hover); }
+.firing-item.active { background: var(--fi-active); }
+.fi-label { font-size: 12px; font-weight: 500; color: var(--text2); }
+.fi-meta  { font-size: 10px; color: var(--text3); margin-top: 2px; }
+.fi-badge { font-size: 9px; background: var(--card); color: var(--text3); padding: 1px 5px; border-radius: 4px; display: inline-block; margin-top: 3px; }
+.fi-actions { display: none; gap: 4px; margin-top: 4px; }
+.edit-mode .fi-actions { display: flex; }
+.fi-act-btn {
+  font-size: 10px; padding: 2px 6px; border: 0.5px solid var(--border); border-radius: 4px;
+  background: none; color: var(--text3); cursor: pointer;
+}
+.fi-act-btn:hover { background: var(--card); color: var(--text2); }
+.fi-act-btn.del:hover { color: #e74c3c; border-color: #e74c3c; }
+
+/* ── responsive ── */
+@media (max-width: 640px) {
+  body { overflow: auto; }
+  .wrap { flex-direction: column; overflow: visible; height: auto; flex: none; }
+  .info-col {
+    width: 100%; border-right: none; border-bottom: 0.5px solid var(--border);
+    flex-direction: row; flex-wrap: wrap; gap: 5px; padding: 6px;
+    overflow-y: visible;
   }
-  @media (prefers-color-scheme: dark) {
-    body { background: #1a1a1a; color: #eee; }
-    header, .cards, .sidebar { background: #222; border-color: #333; }
-    .card { background: #2a2a2a; }
-    .card .label { color: #888; }
-    .badge.idle { background: #333; color: #aaa; }
-    .badge.firing { background: #3E2800; color: #FFB74D; }
-    .badge.complete { background: #1B3A1F; color: #81C784; }
-    .badge.ready { background: #0D2A45; color: #64B5F6; }
-    .badge.error { background: #3B0000; color: #EF9A9A; }
-    .sidebar h2 { color: #666; border-color: #2a2a2a; }
-    .firing-item { border-color: #2a2a2a; }
-    .firing-item:active { background: #2a2a2a; }
-    .firing-item.active { background: #0D2A45; }
-    .firing-item .fi-label { color: #ddd; }
-    .firing-item .fi-meta { color: #666; }
-    .firing-item .fi-badge { background: #333; color: #aaa; }
-    .chart-title { color: #666; }
-  }
+  .ic { flex: 1 1 calc(50% - 5px); min-width: 100px; }
+  .ic.ic-z2 { flex: 1 1 100%; }
+  .ic.ic-z2 .ic-val { font-size: 36px; }
+  .chart-area { height: 56vw; min-height: 220px; flex: none; padding: .5rem; }
+  .chart-wrap { height: 100%; }
+  .sidebar { width: 100%; border-left: none; border-top: 0.5px solid var(--border); max-height: 260px; }
+  .firing-list { max-height: 220px; }
+}
 </style>
 </head>
 <body>
 <header>
   <h1><span id="kilnName">__KILN_NAME__</span> <span id="statusBadge" class="badge __BADGE_CLASS__">__STATUS__</span></h1>
-  <span id="lastUpdated" class="updated">__UPDATED__</span>
+  <div class="header-right">
+    <span id="lastUpdated" data-ts="__UPDATED__">--</span>
+    <button class="hdr-btn" id="refreshBtn" title="Refresh now">&#x21BB;</button>
+    <button class="hdr-btn" id="themeBtn" title="Toggle theme">Auto</button>
+  </div>
 </header>
-<div class="cards">
-  <div class="card"><div class="label">Zone 2 (primary)</div><div id="tempZ2" class="value">__TEMP__°F</div></div>
-  <div class="card"><div class="label">Zone 1</div><div id="tempZ1" class="value">__Z1__°F</div></div>
-  <div class="card"><div class="label">Zone 3</div><div id="tempZ3" class="value">__Z3__°F</div></div>
-  <div class="card"><div class="label">Peak</div><div id="peakVal" class="value">__PEAK__</div></div>
-  <div class="card"><div class="label">Duration</div><div id="durationVal" class="value">__DURATION__</div></div>
-  <div class="card"><div class="label">Rate</div><div id="rateVal" class="value">__RATE__</div></div>
-  <div class="card wide"><div class="label">Program</div><div id="programVal" class="value" style="font-size:13px;padding-top:2px;">__PROGRAM__</div></div>
-</div>
-<div class="main">
+<div class="wrap">
+  <div class="info-col">
+    <div class="ic ic-program"><div class="ic-lbl">Program</div><div id="icProgram" class="ic-val">__PROGRAM__</div></div>
+    <div class="ic ic-z1"><div class="ic-lbl">Zone 1</div><div id="icZ1" class="ic-val">__Z1__°F</div></div>
+    <div class="ic ic-z2"><div class="ic-lbl">Zone 2</div><div id="icZ2" class="ic-val">__TEMP__°F</div></div>
+    <div class="ic ic-z3"><div class="ic-lbl">Zone 3</div><div id="icZ3" class="ic-val">__Z3__°F</div></div>
+    <div class="ic ic-dur"><div class="ic-lbl">Duration</div><div id="icDuration" class="ic-val">__DURATION__</div></div>
+    <div class="ic ic-peak"><div class="ic-lbl">Peak</div><div id="icPeak" class="ic-val">__PEAK__</div></div>
+    <div class="ic ic-dtp"><div class="ic-lbl">Time to Peak</div><div id="icDtp" class="ic-val">__DURATION_TO_PEAK__</div></div>
+    <div class="ic ic-rate"><div class="ic-lbl">Rate</div><div id="icRate" class="ic-val">__RATE__</div></div>
+  </div>
   <div class="chart-area">
-    <div class="chart-title">Temperature (°F) over time into firing</div>
     <div class="chart-wrap">
       <canvas id="kilnChart" role="img" aria-label="Kiln temperature over time">Temperature history</canvas>
     </div>
   </div>
   <div class="sidebar">
-    <h2>Past firings</h2>
+    <div class="sidebar-head">
+      <h2>Past firings</h2>
+    </div>
     <div class="firing-list" id="firingList"></div>
   </div>
 </div>
 <script>
+// ── Theme ────────────────────────────────────────────────────────────────────
+const THEMES = ['system', 'light', 'dark'];
+const THEME_LABELS = { system: 'Auto', light: 'Light', dark: 'Dark' };
+let currentTheme = localStorage.getItem('kiln-theme') || 'system';
+
+function applyTheme(t) {
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.body.classList.toggle('dark', t === 'dark' || (t === 'system' && prefersDark));
+  document.getElementById('themeBtn').textContent = THEME_LABELS[t];
+}
+applyTheme(currentTheme);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (currentTheme === 'system') applyTheme('system');
+});
+document.getElementById('themeBtn').addEventListener('click', () => {
+  currentTheme = THEMES[(THEMES.indexOf(currentTheme) + 1) % THEMES.length];
+  localStorage.setItem('kiln-theme', currentTheme);
+  applyTheme(currentTheme);
+});
+
+// ── Last-updated timestamp ───────────────────────────────────────────────────
+function fmtTs(iso) {
+  if (!iso || !iso.includes('T')) return iso || '--';
+  try { return new Date(iso).toLocaleString(); } catch { return iso; }
+}
+(function () {
+  const el = document.getElementById('lastUpdated');
+  el.textContent = fmtTs(el.dataset.ts);
+})();
+
+// ── Data ─────────────────────────────────────────────────────────────────────
 const allFirings = __ALL_FIRINGS__;
-const liveFiring = { id: 'live', label: 'Live', history: __LIVE_HISTORY__ };
+const liveFiring = { id: 'live', history: __LIVE_HISTORY__ };
 let activeId = 'live';
+
 function getHistory(id) {
   if (id === 'live') return liveFiring.history;
   const f = allFirings.find(x => x.id === id);
   return f ? f.history : [];
 }
+
+// ── Chart ────────────────────────────────────────────────────────────────────
 function buildChart(id) {
   const history = getHistory(id);
   const isLive = (id === 'live');
+  const firstTs = history.length > 0 && history[0].ts ? new Date(history[0].ts).getTime() : null;
+
+  function fmtWall(h) {
+    if (h.ts) {
+      const d = new Date(h.ts);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+    return h.time || '';
+  }
+  function fmtElapsed(h) {
+    if (!firstTs || !h.ts) return '';
+    const mins = Math.round((new Date(h.ts).getTime() - firstTs) / 60000);
+    const hh = Math.floor(mins / 60), mm = mins % 60;
+    return hh ? `+${hh}h${mm > 0 ? ` ${mm}m` : ''}` : `+${mm}m`;
+  }
+
   const TARGET = isLive ? Math.max(history.length, 1500) : history.length;
-  const rawLabels = history.map(h => h.time || '');
-  const rawTemps  = history.map(h => h.temp);
-  const labels = isLive ? rawLabels.concat(Array(TARGET - rawLabels.length).fill('')) : rawLabels;
-  const temps  = isLive ? rawTemps.concat(Array(TARGET - rawTemps.length).fill(null)) : rawTemps;
+  const pad = isLive ? TARGET - history.length : 0;
+  const empty = n => Array(n).fill(null);
+  const rawLabels = history.map(fmtWall);
+  const rawZ2 = history.map(h => h.temp);
+  const rawZ1 = history.map(h => h.z1 != null ? h.z1 : null);
+  const rawZ3 = history.map(h => h.z3 != null ? h.z3 : null);
+  const hasZ1 = rawZ1.some(v => v != null);
+  const hasZ3 = rawZ3.some(v => v != null);
+  const labels = isLive ? rawLabels.concat(Array(pad).fill('')) : rawLabels;
+  const z2Data = isLive ? rawZ2.concat(empty(pad)) : rawZ2;
+  const z1Data = isLive ? rawZ1.concat(empty(pad)) : rawZ1;
+  const z3Data = isLive ? rawZ3.concat(empty(pad)) : rawZ3;
+
+  const isDark = document.body.classList.contains('dark');
+  const tickColor = isDark ? '#666' : '#888';
+  const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
+
+  const datasets = [{
+    label: 'Zone 2',
+    data: z2Data,
+    borderColor: '#D85A30',
+    backgroundColor: 'rgba(216,90,48,0.08)',
+    fill: true, tension: 0, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2,
+  }];
+  if (hasZ1) datasets.push({
+    label: 'Zone 1',
+    data: z1Data,
+    borderColor: 'rgba(100,160,255,0.55)',
+    backgroundColor: 'transparent',
+    fill: false, tension: 0, pointRadius: 0, pointHoverRadius: 3, borderWidth: 1.5,
+  });
+  if (hasZ3) datasets.push({
+    label: 'Zone 3',
+    data: z3Data,
+    borderColor: 'rgba(80,200,120,0.55)',
+    backgroundColor: 'transparent',
+    fill: false, tension: 0, pointRadius: 0, pointHoverRadius: 3, borderWidth: 1.5,
+  });
+
   if (window._kilnChart) window._kilnChart.destroy();
   window._kilnChart = new Chart(document.getElementById('kilnChart'), {
     type: 'line',
-    data: { labels, datasets: [{
-      label: 'Temperature',
-      data: temps,
-      borderColor: '#D85A30',
-      backgroundColor: 'rgba(216,90,48,0.08)',
-      fill: true, tension: 0, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2
-    }]},
+    data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => Math.round(c.parsed.y) + '°F' } } },
+      plugins: {
+        legend: { display: hasZ1 || hasZ3, labels: { font: { size: 9 }, color: tickColor, boxWidth: 10, padding: 8 } },
+        tooltip: { callbacks: {
+          title: items => {
+            const idx = items[0]?.dataIndex;
+            if (idx == null || idx >= history.length) return '';
+            const h = history[idx];
+            const el = fmtElapsed(h);
+            return el ? `${fmtWall(h)}  (${el})` : fmtWall(h);
+          },
+          label: c => c.parsed.y != null ? `${c.dataset.label}: ${Math.round(c.parsed.y)}°F` : null,
+        }},
+      },
       scales: {
-        x: { ticks: { maxTicksLimit: 8, font: { size: 9 }, color: '#888', autoSkip: true, maxRotation: 0 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Time into firing', font: { size: 10 }, color: '#888' } },
-        y: { min: 0, max: 2400, ticks: { callback: v => v + '°F', font: { size: 9 }, color: '#888', stepSize: 400 }, grid: { color: 'rgba(128,128,128,0.12)' }, title: { display: true, text: 'Temperature (°F)', font: { size: 10 }, color: '#888' } }
+        x: { ticks: { maxTicksLimit: 8, font: { size: 9 }, color: tickColor, autoSkip: true, maxRotation: 0 }, grid: { color: gridColor }, title: { display: true, text: 'Time of day', font: { size: 10 }, color: tickColor } },
+        y: { min: 0, max: 2400, ticks: { callback: v => v + '°F', font: { size: 9 }, color: tickColor, stepSize: 400 }, grid: { color: gridColor }, title: { display: true, text: 'Temperature (°F)', font: { size: 10 }, color: tickColor } }
       }
     }
   });
 }
+
+// ── Sidebar list ─────────────────────────────────────────────────────────────
 function renderList() {
   const list = document.getElementById('firingList');
   list.innerHTML = '';
+
   const liveEl = document.createElement('div');
   liveEl.className = 'firing-item' + (activeId === 'live' ? ' active' : '');
   liveEl.innerHTML = '<div class="fi-label">&#x1F534; Live</div><div class="fi-meta">Current firing</div>';
   liveEl.onclick = () => { activeId = 'live'; renderList(); buildChart('live'); };
   list.appendChild(liveEl);
+
   [...allFirings].reverse().forEach(f => {
     const el = document.createElement('div');
     el.className = 'firing-item' + (activeId === f.id ? ' active' : '');
-    el.innerHTML = `<div class="fi-label">${f.label}<button class="fi-delete" title="Delete firing" onclick="deleteFiring(event,'${f.id}')">&#x1F5D1;</button></div><div class="fi-meta">Peak: ${f.peak}°F &middot; ${f.duration}</div><span class="fi-badge">${f.program}</span>`;
+    const dtp = f.duration_to_peak ? ` · peak ${f.duration_to_peak}` : '';
+    el.innerHTML =
+      `<div class="fi-label">${f.label}</div>` +
+      `<div class="fi-meta">Peak: ${f.peak}°F · ${f.duration}${dtp}</div>` +
+      (f.program ? `<span class="fi-badge">${f.program}</span>` : '');
     el.onclick = () => { activeId = f.id; renderList(); buildChart(f.id); };
     list.appendChild(el);
   });
 }
-function deleteFiring(event, id) {
-  event.stopPropagation();
-  if (!confirm('Are you sure you want to delete this firing? This cannot be undone.')) return;
-  fetch('/firing/' + id, { method: 'DELETE' })
-    .then(r => r.json())
-    .then(data => {
-      if (data.ok) {
-        const idx = allFirings.findIndex(f => f.id === id);
-        if (idx !== -1) allFirings.splice(idx, 1);
-        if (activeId === id) { activeId = 'live'; buildChart('live'); }
-        renderList();
-      } else {
-        alert('Could not delete firing.');
-      }
-    })
-    .catch(() => alert('Error connecting to server.'));
-}
 
-renderList();
-window.addEventListener('load', () => buildChart('live'));
+// ── Refresh ──────────────────────────────────────────────────────────────────
+let autoRefreshTimer = null;
+
+function startAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(refreshData, 60000);
+}
 
 function refreshData() {
   fetch('/state')
@@ -181,14 +345,15 @@ function refreshData() {
       const badge = document.getElementById('statusBadge');
       badge.textContent = d.status;
       badge.className = 'badge ' + d.badge;
-      document.getElementById('lastUpdated').textContent = d.last_updated;
-      document.getElementById('tempZ2').textContent = d.temp + '°F';
-      document.getElementById('tempZ1').textContent = d.z1 + '°F';
-      document.getElementById('tempZ3').textContent = d.z3 + '°F';
-      document.getElementById('peakVal').textContent = d.peak;
-      document.getElementById('durationVal').textContent = d.duration;
-      document.getElementById('rateVal').textContent = d.rate;
-      document.getElementById('programVal').textContent = d.program;
+      document.getElementById('lastUpdated').textContent = fmtTs(d.last_updated);
+      document.getElementById('icZ2').textContent = d.temp + '°F';
+      document.getElementById('icZ1').textContent = d.z1 + '°F';
+      document.getElementById('icZ3').textContent = d.z3 + '°F';
+      document.getElementById('icPeak').textContent = d.peak;
+      document.getElementById('icDuration').textContent = d.duration;
+      document.getElementById('icDtp').textContent = d.duration_to_peak || '--';
+      document.getElementById('icRate').textContent = d.rate;
+      document.getElementById('icProgram').textContent = d.program;
       if (activeId === 'live') {
         liveFiring.history = d.history;
         buildChart('live');
@@ -201,7 +366,18 @@ function refreshData() {
     })
     .catch(() => {});
 }
-setInterval(refreshData, 60000);
+
+document.getElementById('refreshBtn').addEventListener('click', refreshData);
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+renderList();
+window.addEventListener('load', () => buildChart('live'));
+startAutoRefresh();
+
+// Rebuild chart when theme changes (to pick up new tick colors)
+document.getElementById('themeBtn').addEventListener('click', () => {
+  setTimeout(() => buildChart(activeId), 50);
+}, true);
 </script>
 </body>
 </html>

@@ -48,8 +48,15 @@ POLL_INTERVAL_SECONDS = 60
 WEB_PORT = 5000
 ABLE_TO_UNLOAD_TEMP = 425
 READY_TO_UNLOAD_TEMP = 200
-HISTORY_FILE = "kiln_firings.json"
-MIN_FIRING_DURATION_HOURS = 12
+_DIR = Path(__file__).parent
+HISTORY_FILE     = _DIR / "kiln_firings.json"
+MAINTENANCE_FILE = _DIR / "kiln_maintenance.json"
+SNAPSHOT_FILE    = _DIR / "current_firing.json"
+MAINT_PATH = "/maint"
+MIN_PEAK_TO_COUNT = 1000
+FIRING_END_TEMP = 300
+FIRING_PEAK_THRESHOLD = 400
+ABANDONED_MIN_MINUTES = 30
 
 # ── URLS ───────────────────────────────────────────────────────────────────────
 
@@ -86,6 +93,75 @@ def save_past_firings(firings):
     except Exception as e:
         print(f"Could not save firing history: {e}")
 
+def load_maintenance():
+    if os.path.exists(MAINTENANCE_FILE):
+        try:
+            with open(MAINTENANCE_FILE) as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return {"records": data, "lifetime_offset": 0}
+            return data
+        except Exception:
+            pass
+    return {"records": [], "lifetime_offset": 0}
+
+def save_maintenance(maint):
+    try:
+        with open(MAINTENANCE_FILE, "w") as f:
+            json.dump(maint, f)
+    except Exception as e:
+        print(f"Could not save maintenance records: {e}")
+
+def save_snapshot():
+    with state_lock:
+        if not state["firing_start"]:
+            return
+        snap = {
+            "firing_start":   state["firing_start"].isoformat(),
+            "history":        list(state["history"]),
+            "peak_temp":      state["peak_temp"],
+            "peak_temp_time": state["peak_temp_time"].isoformat() if state["peak_temp_time"] else None,
+            "has_peaked":     state["has_peaked"],
+            "program":        state["program"],
+        }
+    try:
+        with open(SNAPSHOT_FILE, "w") as f:
+            json.dump(snap, f)
+    except Exception as e:
+        print(f"Could not save snapshot: {e}")
+
+def clear_snapshot():
+    try:
+        if os.path.exists(SNAPSHOT_FILE):
+            os.remove(SNAPSHOT_FILE)
+    except Exception:
+        pass
+
+def restore_snapshot():
+    if not os.path.exists(SNAPSHOT_FILE):
+        return False
+    try:
+        with open(SNAPSHOT_FILE) as f:
+            snap = json.load(f)
+        fs = datetime.fromisoformat(snap["firing_start"])
+        if (datetime.now() - fs).total_seconds() > 48 * 3600 or snap.get("peak_temp", 0) == 0:
+            clear_snapshot()
+            return False
+        ptt = datetime.fromisoformat(snap["peak_temp_time"]) if snap.get("peak_temp_time") else None
+        with state_lock:
+            state["firing_start"]   = fs
+            state["history"]        = snap.get("history", [])
+            state["peak_temp"]      = snap.get("peak_temp", 0)
+            state["peak_temp_time"] = ptt
+            state["has_peaked"]     = snap.get("has_peaked", False)
+            state["program"]        = snap.get("program", "")
+        print(f"🔄 Snapshot restored: {fs.isoformat()}, peak {snap['peak_temp']}°F, {len(snap.get('history', []))} pts")
+        return True
+    except Exception as e:
+        print(f"Could not restore snapshot: {e}")
+        clear_snapshot()
+        return False
+
 # ── SHARED STATE ───────────────────────────────────────────────────────────────
 
 state = {
@@ -95,7 +171,9 @@ state = {
     "history": [],
     "firing_start": None,
     "peak_temp": 0,
-    "last_updated": "--",
+    "peak_temp_time": None,
+    "has_peaked": False,
+    "last_updated": "",
     "program": "",
     "elapsed": "",
     "z1": 0,
@@ -103,16 +181,15 @@ state = {
 }
 state_lock = threading.Lock()
 past_firings = load_past_firings()
+maintenance_data = load_maintenance()
 
 # ── WEB SERVER ─────────────────────────────────────────────────────────────────
 
-HTML_PAGE = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+HTML_PAGE  = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
+MAINT_HTML = (Path(__file__).parent / "maintenance.html").read_text(encoding="utf-8")
 
 
-def build_html():
-    with state_lock:
-        s = dict(state)
-
+def _compute_display(s):
     history = s["history"]
     status  = s["status"]
     temp    = s["temp"]
@@ -121,15 +198,22 @@ def build_html():
     z1      = s.get("z1", 0)
     z3      = s.get("z3", 0)
 
-    elapsed_from_kiln = s.get("elapsed", "")
-    if elapsed_from_kiln:
-        duration = elapsed_from_kiln
-    elif s["firing_start"] and status.lower() in ("firing", "complete"):
-        secs = int((datetime.now() - s["firing_start"]).total_seconds())
+    fs  = s.get("firing_start")
+    ptt = s.get("peak_temp_time")
+
+    if fs and status.lower() in ("firing", "complete"):
+        secs = int((datetime.now() - fs).total_seconds())
         h, m = divmod(secs // 60, 60)
         duration = f"{h}h {m}m" if h else f"{m}m"
     else:
         duration = "--"
+
+    if fs and ptt:
+        ps = int((ptt - fs).total_seconds())
+        ph, pm = divmod(ps // 60, 60)
+        duration_to_peak = f"{ph}h {pm}m" if ph else f"{pm}m"
+    else:
+        duration_to_peak = "--"
 
     if len(history) >= 2:
         diff = history[-1]["temp"] - history[-2]["temp"]
@@ -150,24 +234,35 @@ def build_html():
     else:
         badge = "idle"
 
-    all_firings = EXAMPLE_FIRINGS + past_firings
-    live_history = json.dumps(history)
+    return dict(history=history, status=status, temp=temp, peak=peak, program=program,
+                z1=z1, z3=z3, duration=duration, duration_to_peak=duration_to_peak,
+                rate=rate, badge=badge)
+
+
+def build_html():
+    with state_lock:
+        s = dict(state)
+
+    d = _compute_display(s)
+    all_firings      = EXAMPLE_FIRINGS + past_firings
+    live_history     = json.dumps(d["history"])
     all_firings_json = json.dumps(all_firings)
 
     html = HTML_PAGE
-    html = html.replace("__KILN_NAME__", s["name"])
-    html = html.replace("__STATUS__",    status)
-    html = html.replace("__BADGE_CLASS__", badge)
-    html = html.replace("__TEMP__",      str(temp))
-    html = html.replace("__Z1__",        str(z1))
-    html = html.replace("__Z3__",        str(z3))
-    html = html.replace("__PEAK__",      peak)
-    html = html.replace("__DURATION__",  duration)
-    html = html.replace("__RATE__",      rate)
-    html = html.replace("__PROGRAM__",   program)
-    html = html.replace("__UPDATED__",   s["last_updated"])
-    html = html.replace("__LIVE_HISTORY__", live_history)
-    html = html.replace("__ALL_FIRINGS__",  all_firings_json)
+    html = html.replace("__KILN_NAME__",       s["name"])
+    html = html.replace("__STATUS__",          d["status"])
+    html = html.replace("__BADGE_CLASS__",     d["badge"])
+    html = html.replace("__TEMP__",            str(d["temp"]))
+    html = html.replace("__Z1__",              str(d["z1"]))
+    html = html.replace("__Z3__",              str(d["z3"]))
+    html = html.replace("__PEAK__",            d["peak"])
+    html = html.replace("__DURATION__",        d["duration"])
+    html = html.replace("__DURATION_TO_PEAK__", d["duration_to_peak"])
+    html = html.replace("__RATE__",            d["rate"])
+    html = html.replace("__PROGRAM__",         d["program"])
+    html = html.replace("__UPDATED__",         s["last_updated"] or "")
+    html = html.replace("__LIVE_HISTORY__",    live_history)
+    html = html.replace("__ALL_FIRINGS__",     all_firings_json)
     return html
 
 
@@ -175,57 +270,22 @@ def build_state_json():
     with state_lock:
         s = dict(state)
 
-    history = s["history"]
-    status  = s["status"]
-    temp    = s["temp"]
-    peak    = f"{s['peak_temp']}°F" if s["peak_temp"] else "--"
-    program = s.get("program", "--") or "--"
-    z1      = s.get("z1", 0)
-    z3      = s.get("z3", 0)
-
-    elapsed_from_kiln = s.get("elapsed", "")
-    if elapsed_from_kiln:
-        duration = elapsed_from_kiln
-    elif s["firing_start"] and status.lower() in ("firing", "complete"):
-        secs = int((datetime.now() - s["firing_start"]).total_seconds())
-        h, m = divmod(secs // 60, 60)
-        duration = f"{h}h {m}m" if h else f"{m}m"
-    else:
-        duration = "--"
-
-    if len(history) >= 2:
-        diff = history[-1]["temp"] - history[-2]["temp"]
-        rate = f"{'+' if diff>=0 else ''}{diff * 60}°F/h"
-    else:
-        rate = "--"
-
-    sl = status.lower()
-    if "firing" in sl:
-        badge = "firing"
-    elif "error" in sl:
-        badge = "error"
-    elif "complete" in sl and temp <= ABLE_TO_UNLOAD_TEMP:
-        badge = "ready"
-        status = "Ready to unload"
-    elif "complete" in sl:
-        badge = "complete"
-    else:
-        badge = "idle"
-
+    d = _compute_display(s)
     return json.dumps({
-        "name": s["name"],
-        "status": status,
-        "badge": badge,
-        "temp": temp,
-        "z1": z1,
-        "z3": z3,
-        "peak": peak,
-        "duration": duration,
-        "rate": rate,
-        "program": program,
-        "last_updated": s["last_updated"],
-        "history": history,
-        "all_firings": EXAMPLE_FIRINGS + past_firings,
+        "name":             s["name"],
+        "status":           d["status"],
+        "badge":            d["badge"],
+        "temp":             d["temp"],
+        "z1":               d["z1"],
+        "z3":               d["z3"],
+        "peak":             d["peak"],
+        "duration":         d["duration"],
+        "duration_to_peak": d["duration_to_peak"],
+        "rate":             d["rate"],
+        "program":          d["program"],
+        "last_updated":     s["last_updated"],
+        "history":          d["history"],
+        "all_firings":      EXAMPLE_FIRINGS + past_firings,
     })
 
 
@@ -239,6 +299,28 @@ class KilnHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if self.path in (MAINT_PATH, MAINT_PATH + "/"):
+            page = MAINT_HTML.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+            return
+        if self.path == MAINT_PATH + "/data":
+            counted = sum(1 for f in past_firings if f.get("counted", True))
+            payload = json.dumps({
+                "firings":         EXAMPLE_FIRINGS + past_firings,
+                "replacements":    maintenance_data["records"],
+                "total_firings":   counted + maintenance_data.get("lifetime_offset", 0),
+                "lifetime_offset": maintenance_data.get("lifetime_offset", 0),
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         html = build_html().encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -246,8 +328,119 @@ class KilnHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(html)
 
+    def _json_resp(self, code, obj):
+        data = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _read_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(length)) if length else {}
+
+    def do_POST(self):
+        global maintenance_data, past_firings
+
+        if self.path == MAINT_PATH + "/replacement":
+            try:
+                payload   = self._read_body()
+                component = payload.get("component", "").strip()
+                notes     = payload.get("notes", "").strip()
+                if not component:
+                    return self._json_resp(400, {"ok": False, "error": "component required"})
+                counted = sum(1 for f in past_firings if f.get("counted", True))
+                total   = counted + maintenance_data.get("lifetime_offset", 0)
+                record  = {
+                    "id":           f"repl_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    "component":    component,
+                    "notes":        notes,
+                    "date":         datetime.now().strftime("%Y-%m-%d"),
+                    "firing_count": total,
+                }
+                maintenance_data["records"].append(record)
+                save_maintenance(maintenance_data)
+                self._json_resp(200, {"ok": True, "record": record})
+            except Exception as e:
+                self._json_resp(500, {"ok": False, "error": str(e)})
+
+        elif self.path == MAINT_PATH + "/adjust_count":
+            try:
+                payload = self._read_body()
+                offset  = int(payload.get("lifetime_offset", 0))
+                maintenance_data["lifetime_offset"] = offset
+                save_maintenance(maintenance_data)
+                self._json_resp(200, {"ok": True, "lifetime_offset": offset})
+            except Exception as e:
+                self._json_resp(500, {"ok": False, "error": str(e)})
+
+        elif self.path == "/firing/merge":
+            try:
+                payload   = self._read_body()
+                older_id  = payload.get("older_id", "")
+                newer_id  = payload.get("newer_id", "")
+                older     = next((f for f in past_firings if f["id"] == older_id), None)
+                newer     = next((f for f in past_firings if f["id"] == newer_id), None)
+                if not older or not newer:
+                    return self._json_resp(404, {"ok": False, "error": "firing not found"})
+                if older.get("program") != newer.get("program"):
+                    return self._json_resp(400, {"ok": False, "error": "programs differ"})
+                newer_start = newer["history"][0]["temp"] if newer.get("history") else 0
+                trimmed     = [p for p in older.get("history", []) if p["temp"] < newer_start]
+                merged_hist = trimmed + newer.get("history", [])
+                all_temps   = [p["temp"] for p in merged_hist if p.get("temp")]
+                merged_peak = max(all_temps) if all_temps else older["peak"]
+                if merged_hist:
+                    try:
+                        t0 = datetime.fromisoformat(merged_hist[0]["ts"])
+                        t1 = datetime.fromisoformat(merged_hist[-1]["ts"])
+                        ds = int((t1 - t0).total_seconds())
+                        dh, dm = divmod(ds // 60, 60)
+                        merged_dur = f"{dh}h {dm}m" if dh else f"{dm}m"
+                    except Exception:
+                        merged_dur = older["duration"]
+                else:
+                    merged_dur = older["duration"]
+                older["history"] = merged_hist
+                older["peak"]    = merged_peak
+                older["duration"] = merged_dur
+                past_firings = [f for f in past_firings if f["id"] != newer_id]
+                save_past_firings(past_firings)
+                self._json_resp(200, {"ok": True, "merged": older})
+            except Exception as e:
+                self._json_resp(500, {"ok": False, "error": str(e)})
+
+        elif self.path == MAINT_PATH + "/update":
+            import subprocess
+            try:
+                payload = self._read_body()
+                confirm = payload.get("confirm", "")
+                with state_lock:
+                    is_active = state["firing_start"] is not None
+                if is_active and confirm != "UPDATE":
+                    return self._json_resp(200, {"ok": False, "needs_confirm": True})
+                if is_active:
+                    save_snapshot()
+                result = subprocess.run(
+                    ["git", "pull", "--ff-only"],
+                    capture_output=True, text=True,
+                    cwd=str(Path(__file__).parent)
+                )
+                if result.returncode != 0:
+                    return self._json_resp(200, {"ok": False, "error": result.stderr.strip()})
+                self._json_resp(200, {"ok": True, "output": result.stdout.strip()})
+            except Exception as e:
+                self._json_resp(500, {"ok": False, "error": str(e)})
+                return
+            import os as _os
+            _os._exit(0)
+
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_DELETE(self):
-        # Extract firing ID from path: DELETE /firing/<id>
         path = self.path
         if path.startswith("/firing/"):
             firing_id = path[len("/firing/"):]
@@ -256,6 +449,21 @@ class KilnHandler(BaseHTTPRequestHandler):
             past_firings = [f for f in past_firings if f["id"] != firing_id]
             if len(past_firings) < original_len:
                 save_past_firings(past_firings)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"ok": true}')
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b'{"ok": false, "error": "Not found"}')
+        elif path.startswith(MAINT_PATH + "/replacement/"):
+            global maintenance_data
+            repl_id      = path[len(MAINT_PATH + "/replacement/"):]
+            orig         = len(maintenance_data["records"])
+            maintenance_data["records"] = [r for r in maintenance_data["records"] if r["id"] != repl_id]
+            if len(maintenance_data["records"]) < orig:
+                save_maintenance(maintenance_data)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -278,7 +486,6 @@ class KilnServer(HTTPServer):
         if sys.exc_info()[0] in (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             return
         super().handle_error(request, client_address)
-
 
 def run_server():
     server = KilnServer(("0.0.0.0", WEB_PORT), KilnHandler)
@@ -413,6 +620,8 @@ def read_kiln_status(page):
 def main():
     global past_firings
     print("🔥 KilnAid Monitor starting…")
+    if restore_snapshot():
+        print("   (Active firing state restored from snapshot)")
 
     t = threading.Thread(target=run_server, daemon=True)
     t.start()
@@ -474,40 +683,75 @@ def main():
                         state["z3"]           = z3
                         state["program"]      = program
                         state["elapsed"]      = elapsed
-                        state["last_updated"] = datetime.now().strftime("%d %b %Y, %H:%M:%S")
+                        state["last_updated"] = datetime.now().isoformat(timespec="seconds")
 
+                        # Start firing
                         if "firing" in status.lower() and not state["firing_start"]:
-                            state["firing_start"] = datetime.now()
-                            state["history"] = []
-                            state["peak_temp"] = 0
+                            state["firing_start"]   = datetime.now()
+                            state["history"]        = []
+                            state["peak_temp"]      = 0
+                            state["peak_temp_time"] = None
+                            state["has_peaked"]     = False
 
-                        if "idle" in status.lower() and state["firing_start"]:
+                        # Track peak
+                        if state["firing_start"] and temp > state["peak_temp"]:
+                            state["peak_temp"]      = temp
+                            state["peak_temp_time"] = datetime.now()
+                            if temp >= FIRING_PEAK_THRESHOLD:
+                                state["has_peaked"] = True
+
+                        # End firing: cooled below FIRING_END_TEMP after peaking
+                        if state["has_peaked"] and temp <= FIRING_END_TEMP and state["firing_start"]:
+                            fs   = state["firing_start"]
+                            secs = int((datetime.now() - fs).total_seconds())
+                            h, m = divmod(secs // 60, 60)
+                            ptt  = state["peak_temp_time"]
+                            if ptt:
+                                ps = int((ptt - fs).total_seconds())
+                                ph, pm = divmod(ps // 60, 60)
+                                dtp = f"{ph}h {pm}m" if ph else f"{pm}m"
+                            else:
+                                dtp = "--"
+                            counted = state["peak_temp"] >= MIN_PEAK_TO_COUNT
+                            rec = {
+                                "id":               fs.strftime("firing_%Y%m%d_%H%M"),
+                                "label":            f"{program or 'Firing'} — {fs.strftime('%d %b %Y')}",
+                                "program":          program,
+                                "peak":             state["peak_temp"],
+                                "duration":         f"{h}h {m}m" if h else f"{m}m",
+                                "duration_to_peak": dtp,
+                                "date":             fs.strftime("%Y-%m-%d"),
+                                "history":          list(state["history"]),
+                                "counted":          counted,
+                            }
+                            past_firings.append(rec)
+                            save_past_firings(past_firings)
+                            clear_snapshot()
+                            print(f"💾 Saved: {rec['label']} (peak {state['peak_temp']}°F, {'counted' if counted else 'uncounted'})")
+                            state["firing_start"]   = None
+                            state["has_peaked"]     = False
+                            state["peak_temp_time"] = None
+
+                        # Abandoned: went idle without reaching peak threshold
+                        elif "idle" in status.lower() and state["firing_start"] and not state["has_peaked"]:
                             secs = int((datetime.now() - state["firing_start"]).total_seconds())
-                            if state["history"] and secs >= MIN_FIRING_DURATION_HOURS * 3600:
-                                h, m = divmod(secs // 60, 60)
-                                firing_record = {
-                                    "id": state["firing_start"].strftime("firing_%Y%m%d_%H%M"),
-                                    "label": f"{program or 'Firing'} — {state['firing_start'].strftime('%d %b %Y')}",
-                                    "program": program,
-                                    "peak": state["peak_temp"],
-                                    "duration": f"{h}h {m}m" if h else f"{m}m",
-                                    "date": state["firing_start"].strftime("%Y-%m-%d"),
-                                    "history": state["history"],
-                                }
-                                past_firings.append(firing_record)
-                                save_past_firings(past_firings)
-                                print(f"💾 Firing saved: {firing_record['label']}")
-                            elif state["history"]:
-                                print(f"⏭️  Firing too short ({secs//3600}h {(secs%3600)//60}m) — not saved.")
-                            state["firing_start"] = None
+                            if secs >= ABANDONED_MIN_MINUTES * 60:
+                                print(f"⏭️  Abandoned ({secs//60}m, peak {state['peak_temp']}°F) — not saved.")
+                            state["firing_start"]   = None
+                            state["peak_temp_time"] = None
 
-                        if state["firing_start"] or "complete" in status.lower():
-                            point_label = elapsed if elapsed else datetime.now().strftime("%H:%M")
-                            state["history"].append({"time": point_label, "temp": temp})
+                        # Append history while firing active
+                        if state["firing_start"]:
+                            state["history"].append({
+                                "ts":   datetime.now().isoformat(timespec="seconds"),
+                                "temp": temp,
+                                "z1":   z1,
+                                "z3":   z3,
+                            })
                             if len(state["history"]) > 1500:
                                 state["history"] = state["history"][-1500:]
-                            if temp > state["peak_temp"]:
-                                state["peak_temp"] = temp
+
+                    save_snapshot()
 
                     # Slack notifications
                     was_ready   = last_statuses.get(f"{name}_ready", False)
