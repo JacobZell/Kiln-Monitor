@@ -188,6 +188,8 @@ def build_state_json():
         duration = elapsed_from_kiln
     elif s["firing_start"] and status.lower() in ("firing", "complete"):
         secs = int((datetime.now() - s["firing_start"]).total_seconds())
+        # Convert seconds to hours
+        
         h, m = divmod(secs // 60, 60)
         duration = f"{h}h {m}m" if h else f"{m}m"
     else:
