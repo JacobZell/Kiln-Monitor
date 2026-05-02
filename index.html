@@ -37,19 +37,28 @@
   .firing-item .fi-label { font-size: 12px; font-weight: 500; color: #333; }
   .firing-item .fi-meta { font-size: 10px; color: #999; margin-top: 2px; }
   .firing-item .fi-badge { font-size: 9px; background: #f0f0f0; color: #555; padding: 1px 5px; border-radius: 4px; display: inline-block; margin-top: 3px; }
-  .fi-delete { float: right; background: none; border: none; cursor: pointer; font-size: 13px; color: #ccc; padding: 0 2px; line-height: 1; }
+  .fi-delete { float: right; background: none; border: none; cursor: pointer; font-size: 13px; color: #ccc; padding: 2px 4px; line-height: 1; }
   .fi-delete:hover { color: #e74c3c; }
+  .value-sm { font-size: 13px; padding-top: 2px; }
   .updated { font-size: 9px; color: #bbb; }
   @media (max-width: 640px) {
     body { overflow: auto; }
+    header { flex-wrap: wrap; gap: .3rem; padding: .75rem 1rem; }
+    header h1 { font-size: 1rem; }
+    .updated { font-size: 10px; }
     .main { flex-direction: column; overflow: visible; height: auto; }
-    .cards { grid-template-columns: repeat(2, 1fr); }
+    .cards { grid-template-columns: repeat(2, 1fr); gap: 8px; padding: .65rem .75rem; }
+    .card { padding: .55rem .75rem; }
     .card.wide { grid-column: span 2; }
-    .card .value { font-size: 20px; }
-    .chart-area { padding: .75rem; height: 55vw; min-height: 240px; flex: none; }
+    .card .label { font-size: 11px; }
+    .card .value { font-size: 22px; }
+    .chart-area { padding: .75rem; height: 62vw; min-height: 260px; flex: none; }
     .chart-wrap { height: 100%; }
-    .sidebar { width: 100%; border-left: none; border-top: 0.5px solid #e0e0e0; max-height: 280px; }
-    .firing-list { max-height: 240px; }
+    .sidebar { width: 100%; border-left: none; border-top: 0.5px solid #e0e0e0; max-height: none; }
+    .firing-list { max-height: none; }
+    .firing-item { padding: .8rem .85rem; }
+    .fi-delete { padding: 6px 10px; font-size: 15px; }
+    .value-sm { font-size: 15px; }
   }
   @media (prefers-color-scheme: dark) {
     body { background: #1a1a1a; color: #eee; }
@@ -84,7 +93,7 @@
   <div class="card"><div class="label">Peak</div><div id="peakVal" class="value">__PEAK__</div></div>
   <div class="card"><div class="label">Duration</div><div id="durationVal" class="value">__DURATION__</div></div>
   <div class="card"><div class="label">Rate</div><div id="rateVal" class="value">__RATE__</div></div>
-  <div class="card wide"><div class="label">Program</div><div id="programVal" class="value" style="font-size:13px;padding-top:2px;">__PROGRAM__</div></div>
+  <div class="card wide"><div class="label">Program</div><div id="programVal" class="value value-sm">__PROGRAM__</div></div>
 </div>
 <div class="main">
   <div class="chart-area">
