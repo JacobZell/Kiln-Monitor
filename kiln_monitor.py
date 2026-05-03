@@ -476,7 +476,7 @@ class KilnHandler(BaseHTTPRequestHandler):
             self.send_response(400)
             self.end_headers()
 
-    def log_message(self, *args):
+    def log_message(self, *_):
         pass
 
 
@@ -533,7 +533,9 @@ def read_kiln_status(page):
         raise RuntimeError("session expired")
 
     # Status — scan page text for known keywords, robust to HTML changes
+    # Strip label text that contains status keywords but isn't the status itself
     body_text = page.inner_text("body").lower()
+    body_text = body_text.replace("elapsed firing time", "")
     if "firing" in body_text:
         status = "Firing"
     elif "complete" in body_text:
@@ -828,8 +830,6 @@ def main():
                 first_run = True
 
             time.sleep(POLL_INTERVAL_SECONDS)
-
-        browser.close()
 
 if __name__ == "__main__":
     main()
