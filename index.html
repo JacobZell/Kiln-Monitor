@@ -10,24 +10,27 @@
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; }
 
-/* ── light theme (default) ── */
+/* ── Bodgery light theme (default) ── */
 body {
-  --bg:        #f5f5f5;
-  --surface:   #fff;
-  --border:    #e0e0e0;
-  --border2:   #f0f0f0;
-  --card:      #f7f7f7;
-  --text:      #111;
-  --text2:     #444;
-  --text3:     #888;
-  --text4:     #bbb;
-  --badge-idle-bg: #f0f0f0; --badge-idle-fg: #666;
-  --badge-firing-bg: #FFF3E0; --badge-firing-fg: #E65100;
+  --bg:        #FFF8EE;
+  --surface:   #FFFFFF;
+  --border:    #ECC96A;
+  --border2:   #F5E4B0;
+  --card:      #FFF3DC;
+  --text:      #1A1100;
+  --text2:     #3D2800;
+  --text3:     #8B6500;
+  --text4:     #C49A20;
+  --accent:    #F5A623;
+  --header-bg: #F5A623;
+  --header-border: #E09010;
+  --badge-idle-bg: #F5E4B0; --badge-idle-fg: #6B4700;
+  --badge-firing-bg: #FF6D00; --badge-firing-fg: #fff;
   --badge-complete-bg: #E8F5E9; --badge-complete-fg: #2E7D32;
   --badge-ready-bg: #E3F2FD; --badge-ready-fg: #1565C0;
   --badge-error-bg: #FFEBEE; --badge-error-fg: #C62828;
-  --fi-active: #EEF4FF;
-  --fi-hover: #f5f5f5;
+  --fi-active: #FFE4A0;
+  --fi-hover:  #FFF3DC;
   background: var(--bg); color: var(--text);
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -52,25 +55,33 @@ body.dark {
 
 /* ── header ── */
 header {
-  padding: .55rem 1rem; display: flex; align-items: center; justify-content: space-between;
-  flex-shrink: 0; border-bottom: 0.5px solid var(--border); background: var(--surface);
-  gap: .5rem;
+  padding: .45rem 1rem; display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; border-bottom: 2px solid var(--header-border);
+  background: var(--header-bg); gap: .5rem;
 }
-header h1 { font-size: .9rem; font-weight: 500; color: var(--text2); white-space: nowrap; }
+.header-left { display: flex; align-items: center; gap: .65rem; }
+.bodgery-logo { height: 36px; flex-shrink: 0; border-radius: 8px; }
+header h1 { font-size: .9rem; font-weight: 600; color: #1A1100; white-space: nowrap; }
 .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 5px; margin-left: 6px; white-space: nowrap; }
-.badge.idle     { background: var(--badge-idle-bg);     color: var(--badge-idle-fg); }
+.badge.idle     { background: rgba(0,0,0,0.12); color: #3D2800; }
 .badge.firing   { background: var(--badge-firing-bg);   color: var(--badge-firing-fg); }
 .badge.complete { background: var(--badge-complete-bg); color: var(--badge-complete-fg); }
 .badge.ready    { background: var(--badge-ready-bg);    color: var(--badge-ready-fg); }
 .badge.error    { background: var(--badge-error-bg);    color: var(--badge-error-fg); }
 .header-right { display: flex; align-items: center; gap: .4rem; flex-shrink: 0; }
-#lastUpdated { font-size: 9px; color: var(--text4); white-space: nowrap; }
+#lastUpdated { font-size: 9px; color: rgba(26,17,0,0.6); white-space: nowrap; }
 .hdr-btn {
-  font-size: 11px; border: 0.5px solid var(--border); border-radius: 5px;
-  padding: 3px 8px; background: none; color: var(--text3); cursor: pointer;
+  font-size: 11px; border: 1px solid rgba(26,17,0,0.25); border-radius: 5px;
+  padding: 3px 8px; background: rgba(255,255,255,0.25); color: #1A1100; cursor: pointer;
   white-space: nowrap;
 }
-.hdr-btn:hover { background: var(--card); color: var(--text2); }
+.hdr-btn:hover { background: rgba(255,255,255,0.45); }
+body.dark header { background: #2A1E00; border-color: #5A3A00; }
+body.dark header h1 { color: #FFD580; }
+body.dark #lastUpdated { color: #8B6500; }
+body.dark .hdr-btn { background: rgba(255,200,50,0.08); border-color: #5A3A00; color: #FFD580; }
+body.dark .hdr-btn:hover { background: rgba(255,200,50,0.15); }
+body.dark .badge.idle { background: #3D2800; color: #C49A20; }
 
 /* ── main layout ── */
 .wrap { display: flex; flex: 1; overflow: hidden; min-height: 0; }
@@ -145,7 +156,10 @@ canvas { display: block; }
 </head>
 <body>
 <header>
-  <h1><span id="kilnName">__KILN_NAME__</span> <span id="statusBadge" class="badge __BADGE_CLASS__">__STATUS__</span></h1>
+  <div class="header-left">
+    <img src="/logo" class="bodgery-logo" alt="The Bodgery Ceramics">
+    <h1><span id="kilnName">__KILN_NAME__</span> <span id="statusBadge" class="badge __BADGE_CLASS__">__STATUS__</span></h1>
+  </div>
   <div class="header-right">
     <span id="lastUpdated" data-ts="__UPDATED__">--</span>
     <button class="hdr-btn" id="refreshBtn" title="Refresh now">&#x21BB;</button>
