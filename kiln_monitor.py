@@ -299,6 +299,15 @@ class KilnHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if self.path == "/chart.js":
+            data = (_DIR / "chart.umd.js").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.path == "/logo":
             img = next((_DIR / f for f in ("logo.png", "logo.PNG") if (_DIR / f).exists()), None)
             if not img:
