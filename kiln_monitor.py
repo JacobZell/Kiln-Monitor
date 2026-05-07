@@ -17,6 +17,8 @@ import threading
 import requests
 import json
 import os
+import smtplib
+from email.message import EmailMessage
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from datetime import datetime
@@ -38,11 +40,17 @@ load_env()
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 
-KILN_EMAIL    = os.environ.get("KILN_EMAIL", "ceramics@thebodgery.org")
-KILN_PASSWORD = os.environ.get("KILN_PASSWORD", "B0dgeryCeramics!")
+KILN_EMAIL    = os.environ.get("KILN_EMAIL")
+KILN_PASSWORD = os.environ.get("KILN_PASSWORD")
 
-SLACK_MEMBERS_URL    = os.environ.get("SLACK_MEMBERS_URL", "https://hooks.slack.com/triggers/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")
-SLACK_LEADERSHIP_URL = os.environ.get("SLACK_LEADERSHIP_URL", "https://hooks.slack.com/triggers/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")
+SLACK_MEMBERS_URL    = os.environ.get("SLACK_MEMBERS_URL")
+SLACK_LEADERSHIP_URL = os.environ.get("SLACK_LEADERSHIP_URL")
+
+GMAIL_EMAIL         = os.environ.get("GMAIL_EMAIL")
+GMAIL_APP_PASSWORD  = os.environ.get("GMAIL_APP_PASSWORD")
+GMAIL_EMAIL_2        = os.environ.get("GMAIL_EMAIL_2")
+GMAIL_APP_PASSWORD_2 = os.environ.get("GMAIL_APP_PASSWORD_2")
+IFTTT_TRIGGER_EMAIL = "trigger@applet.ifttt.com"
 
 POLL_INTERVAL_SECONDS = 60
 WEB_PORT = 5000
@@ -123,6 +131,8 @@ def save_snapshot():
             "peak_temp_time": state["peak_temp_time"].isoformat() if state["peak_temp_time"] else None,
             "has_peaked":     state["has_peaked"],
             "program":        state["program"],
+            "vent_on":        state["vent_on"],
+            "fan_on":         state["fan_on"],
         }
     try:
         with open(SNAPSHOT_FILE, "w") as f:
@@ -155,6 +165,8 @@ def restore_snapshot():
             state["peak_temp_time"] = ptt
             state["has_peaked"]     = snap.get("has_peaked", False)
             state["program"]        = snap.get("program", "")
+            state["vent_on"]        = snap.get("vent_on", True)
+            state["fan_on"]         = snap.get("fan_on", False)
         print(f"🔄 Snapshot restored: {fs.isoformat()}, peak {snap['peak_temp']}°F, {len(snap.get('history', []))} pts")
         return True
     except Exception as e:
@@ -178,6 +190,8 @@ state = {
     "elapsed": "",
     "z1": 0,
     "z3": 0,
+    "vent_on": False,
+    "fan_on": False,
 }
 state_lock = threading.Lock()
 past_firings = load_past_firings()
@@ -249,6 +263,7 @@ def build_html():
     all_firings_json = json.dumps(all_firings)
 
     html = HTML_PAGE
+    vent_on = s.get("vent_on", False)
     html = html.replace("__KILN_NAME__",       s["name"])
     html = html.replace("__STATUS__",          d["status"])
     html = html.replace("__BADGE_CLASS__",     d["badge"])
@@ -263,6 +278,11 @@ def build_html():
     html = html.replace("__UPDATED__",         s["last_updated"] or "")
     html = html.replace("__LIVE_HISTORY__",    live_history)
     html = html.replace("__ALL_FIRINGS__",     all_firings_json)
+    fan_on  = s.get("fan_on", False)
+    html = html.replace("__VENT_STATUS__",     "ON" if vent_on else "OFF")
+    html = html.replace("__VENT_CLASS__",      "vent-on" if vent_on else "vent-off")
+    html = html.replace("__FAN_STATUS__",      "ON" if fan_on else "OFF")
+    html = html.replace("__FAN_CLASS__",       "vent-on" if fan_on else "vent-off")
     return html
 
 
@@ -286,6 +306,8 @@ def build_state_json():
         "last_updated":     s["last_updated"],
         "history":          d["history"],
         "all_firings":      EXAMPLE_FIRINGS + past_firings,
+        "vent_on":          s["vent_on"],
+        "fan_on":           s["fan_on"],
     })
 
 
@@ -528,6 +550,48 @@ def notify(payload: dict, members: bool = False, leadership: bool = False):
         send_slack_message(payload, SLACK_MEMBERS_URL)
     if leadership:
         send_slack_message(payload, SLACK_LEADERSHIP_URL)
+
+def send_vent_email(turn_on: bool):
+    if not GMAIL_APP_PASSWORD:
+        print("⚠️  GMAIL_APP_PASSWORD not set — skipping vent email")
+        return
+    tag = "#TurnOnKilnVent" if turn_on else "#TurnOffKilnVent"
+    try:
+        msg = EmailMessage()
+        msg["From"] = GMAIL_EMAIL
+        msg["To"] = IFTTT_TRIGGER_EMAIL
+        msg["Subject"] = tag
+        msg.set_content(tag)
+        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+            smtp.starttls()
+            smtp.login(GMAIL_EMAIL, GMAIL_APP_PASSWORD)
+            smtp.send_message(msg)
+        print(f"📧 Vent email sent: {tag}")
+        with state_lock:
+            state["vent_on"] = turn_on
+    except Exception as e:
+        print(f"⚠️  Vent email failed: {e}")
+
+def send_fan_email(turn_on: bool):
+    if not GMAIL_APP_PASSWORD_2:
+        print("⚠️  GMAIL_APP_PASSWORD_2 not set — skipping fan email")
+        return
+    tag = "#TurnOnCoolingFan" if turn_on else "#TurnOffCoolingFan"
+    try:
+        msg = EmailMessage()
+        msg["From"] = GMAIL_EMAIL_2
+        msg["To"] = IFTTT_TRIGGER_EMAIL
+        msg["Subject"] = tag
+        msg.set_content(tag)
+        with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+            smtp.starttls()
+            smtp.login(GMAIL_EMAIL_2, GMAIL_APP_PASSWORD_2)
+            smtp.send_message(msg)
+        print(f"📧 Fan email sent: {tag}")
+        with state_lock:
+            state["fan_on"] = turn_on
+    except Exception as e:
+        print(f"⚠️  Fan email failed: {e}")
 
 # ── BROWSER HELPERS ────────────────────────────────────────────────────────────
 
@@ -791,14 +855,18 @@ def main():
                         prog = f" ({program})" if program else ""
                         if "firing" in status.lower():
                             notify({"KilnStatus": f"🔥 *{name} is now firing{prog}!* The kiln has started a firing cycle."}, members=True)
+                            threading.Thread(target=send_vent_email, args=(True,), daemon=True).start()
                         elif is_ready:
                             notify({"KilnStatus": f"🏺 *{name} is ready to unload!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open and unload."}, members=True)
                         elif is_able:
                             notify({"KilnStatus": f"🏺 *{name} is able to be unloaded!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open."}, leadership=True)
                         elif is_complete:
                             notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str}."}, leadership=True)
+                            threading.Thread(target=send_fan_email, args=(True,), daemon=True).start()
                         elif "idle" in status.lower():
                             notify({"KilnStatus": f"💤 *{name} has been unloaded and is now idle.* Current temp: {temp_str}"}, members=True)
+                            threading.Thread(target=send_vent_email, args=(False,), daemon=True).start()
+                            threading.Thread(target=send_fan_email, args=(False,), daemon=True).start()
                         elif "error" in status.lower():
                             notify({"KilnStatus": f"🚨 *{name} has an error{prog}!* The kiln has reported an error and may need attention. Current temp: {temp_str}"}, leadership=True)
                         else:

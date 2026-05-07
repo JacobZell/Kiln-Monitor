@@ -97,6 +97,9 @@ body.dark .badge.idle { background: #3D2800; color: #C49A20; }
 .ic .ic-val { font-size: 15px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ic.ic-z2 .ic-val { font-size: 28px; font-weight: 600; line-height: 1.1; }
 .ic.ic-program .ic-val { font-size: 12px; }
+.ic-val.vent-on  { color: #2e7d32; font-weight: 600; }
+.ic-val.vent-off { color: var(--text3); }
+body.dark .ic-val.vent-on { color: #81c784; }
 
 /* ── chart area ── */
 .chart-area { flex: 1; display: flex; flex-direction: column; padding: .6rem; min-height: 0; min-width: 0; }
@@ -176,6 +179,8 @@ canvas { display: block; }
     <div class="ic ic-peak"><div class="ic-lbl">Peak</div><div id="icPeak" class="ic-val">__PEAK__</div></div>
     <div class="ic ic-dtp"><div class="ic-lbl">Time to Peak</div><div id="icDtp" class="ic-val">__DURATION_TO_PEAK__</div></div>
     <div class="ic ic-rate"><div class="ic-lbl">Rate</div><div id="icRate" class="ic-val">__RATE__</div></div>
+    <div class="ic ic-vent"><div class="ic-lbl">Vent</div><div id="icVent" class="ic-val __VENT_CLASS__">__VENT_STATUS__</div></div>
+    <div class="ic ic-fan"><div class="ic-lbl">Cooling Fan</div><div id="icFan" class="ic-val __FAN_CLASS__">__FAN_STATUS__</div></div>
   </div>
   <div class="chart-area">
     <div class="chart-wrap">
@@ -368,6 +373,12 @@ function refreshData() {
       document.getElementById('icDtp').textContent = d.duration_to_peak || '--';
       document.getElementById('icRate').textContent = d.rate;
       document.getElementById('icProgram').textContent = d.program;
+      const ventEl = document.getElementById('icVent');
+      ventEl.textContent = d.vent_on ? 'ON' : 'OFF';
+      ventEl.className = 'ic-val ' + (d.vent_on ? 'vent-on' : 'vent-off');
+      const fanEl = document.getElementById('icFan');
+      fanEl.textContent = d.fan_on ? 'ON' : 'OFF';
+      fanEl.className = 'ic-val ' + (d.fan_on ? 'vent-on' : 'vent-off');
       if (activeId === 'live') {
         liveFiring.history = d.history;
         buildChart('live');
