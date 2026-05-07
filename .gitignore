@@ -1,0 +1,6 @@
+.env
+*.pyc
+__pycache__/
+kiln_firings.json
+kiln_maintenance.json
+current_firing.json
