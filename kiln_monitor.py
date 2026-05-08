@@ -56,6 +56,7 @@ POLL_INTERVAL_SECONDS = 60
 WEB_PORT = 5000
 ABLE_TO_UNLOAD_TEMP = 425
 READY_TO_UNLOAD_TEMP = 200
+FAN_ON_TEMP = 800
 _DIR = Path(__file__).parent
 HISTORY_FILE     = _DIR / "kiln_firings.json"
 MAINTENANCE_FILE = _DIR / "kiln_maintenance.json"
@@ -862,11 +863,11 @@ def main():
                             notify({"KilnStatus": f"🏺 *{name} is able to be unloaded!* The {program or 'firing'} has finished and cooled to {temp_str} — safe to open."}, leadership=True)
                         elif is_complete:
                             notify({"KilnStatus": f"✅ *{name} firing complete{prog}!* Reached target temperature. Currently cooling at {temp_str}."}, leadership=True)
-                            threading.Thread(target=send_fan_email, args=(True,), daemon=True).start()
                         elif "idle" in status.lower():
                             notify({"KilnStatus": f"💤 *{name} has been unloaded and is now idle.* Current temp: {temp_str}"}, members=True)
                             threading.Thread(target=send_vent_email, args=(False,), daemon=True).start()
                             threading.Thread(target=send_fan_email, args=(False,), daemon=True).start()
+                            last_statuses[f"{name}_fan_triggered"] = False
                         elif "error" in status.lower():
                             notify({"KilnStatus": f"🚨 *{name} has an error{prog}!* The kiln has reported an error and may need attention. Current temp: {temp_str}"}, leadership=True)
                         else:
@@ -874,6 +875,12 @@ def main():
 
                         last_statuses[name] = status
                         last_statuses[f"{name}_ready"] = is_able
+
+                    # Turn on cooling fan when temp drops to FAN_ON_TEMP during cooling
+                    fan_triggered = last_statuses.get(f"{name}_fan_triggered", False)
+                    if not first_run and not fan_triggered and is_complete and temp <= FAN_ON_TEMP:
+                        threading.Thread(target=send_fan_email, args=(True,), daemon=True).start()
+                        last_statuses[f"{name}_fan_triggered"] = True
 
             except PWTimeout:
                 print("⚠️  Timeout reading page, will retry.")
