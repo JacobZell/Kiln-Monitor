@@ -54,6 +54,11 @@ SLACK_LEADERSHIP_URL = os.environ.get("SLACK_LEADERSHIP_URL", "https://hooks.sla
 KILN_ADMIN_PASS      = os.environ.get("KILN_ADMIN_PASS", "")
 SESSION_TTL_SECONDS  = 60 * 60   # 1 hour
 
+# Kilnsugi push webhook
+KILNSUGI_WEBHOOK_URL    = os.environ.get("KILNSUGI_WEBHOOK_URL", "https://kilnsugi.vercel.app/api/kiln/webhook")
+KILNSUGI_WEBHOOK_SECRET = os.environ.get("KILNSUGI_WEBHOOK_SECRET", "")
+KILNSUGI_HEARTBEAT_S    = 5 * 60   # push even if nothing changed, so Kilnsugi can detect Pi going offline
+
 POLL_INTERVAL_SECONDS = 60
 WEB_PORT              = 5000
 
@@ -859,6 +864,31 @@ def notify(payload, members=False, leadership=False):
     if leadership:
         send_slack_message(payload, SLACK_LEADERSHIP_URL)
 
+def push_kilnsugi(trigger=""):
+    """POST current state to the Kilnsugi webhook."""
+    if not KILNSUGI_WEBHOOK_URL or not KILNSUGI_WEBHOOK_SECRET:
+        return
+    with state_lock:
+        payload = {
+            "status":           state["status"],
+            "temp":             state["temp"],
+            "z1":               state.get("z1", 0),
+            "z3":               state.get("z3", 0),
+            "peak":             state["peak_temp"],
+            "name":             state["name"],
+            "last_updated_iso": state["last_updated_iso"],
+            "commit_sha":       state.get("commit_sha", ""),
+        }
+    headers = {"Authorization": f"Bearer {KILNSUGI_WEBHOOK_SECRET}"}
+    try:
+        resp = requests.post(KILNSUGI_WEBHOOK_URL, json=payload, headers=headers, timeout=10)
+        if resp.status_code < 300:
+            print(f"📡 Kilnsugi push ok ({trigger}): {resp.status_code}")
+        else:
+            print(f"⚠️  Kilnsugi push returned {resp.status_code}: {resp.text}")
+    except Exception as e:
+        print(f"⚠️  Kilnsugi push failed: {e}")
+
 # ── BROWSER HELPERS ────────────────────────────────────────────────────────────
 
 def login(page):
@@ -989,9 +1019,10 @@ def main():
             browser.close()
             return
 
-        last_statuses = {}
-        first_run = True
-        browser_start = time.time()
+        last_statuses  = {}
+        last_push_time = 0
+        first_run      = True
+        browser_start  = time.time()
         BROWSER_RESTART_INTERVAL = 24 * 60 * 60
 
         while True:
@@ -1100,6 +1131,12 @@ def main():
 
                         last_statuses[name] = status
                         last_statuses[f"{name}_ready"] = is_able
+                        push_kilnsugi("state_change")
+                        last_push_time = time.time()
+
+                if time.time() - last_push_time > KILNSUGI_HEARTBEAT_S:
+                    push_kilnsugi("heartbeat")
+                    last_push_time = time.time()
 
             except PWTimeout:
                 print("⚠️  Timeout reading page, will retry.")
